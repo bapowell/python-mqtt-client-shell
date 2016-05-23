@@ -1,5 +1,5 @@
 # Ignore the paho subfolder (python mqtt module from Paho project)
-./paho
+paho/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
