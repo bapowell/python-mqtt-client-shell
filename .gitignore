@@ -1,3 +1,6 @@
+# Ignore the paho subfolder (python mqtt module from Paho project)
+./paho
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
