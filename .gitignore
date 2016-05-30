@@ -1,6 +1,11 @@
 # Ignore the paho subfolder (python mqtt module from Paho project)
 paho/
 
+# Ignore the Eclipse-related project files
+.project
+.pydevproject
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
