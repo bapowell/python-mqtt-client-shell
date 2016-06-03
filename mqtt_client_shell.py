@@ -406,15 +406,16 @@ class ConnectionConsole(RootConsole):
                 self.context.mqttclient.loop_stop()
 
 
-class MessagingConsole(RootConsole):
-    """Console for performing pub/sub messaging, via an active MQTT connection.
+class MessagePublisher(object):
+    """Assist with publishing a message via MQTT.
     """
     
     @staticmethod
     def parse_pub_msg_input(line):
         """Parse a space-delimited line of text designating the parameters for a message publish: topic payload qos retain
-        topic (string, required) - may be quoted, e.g. if contains whitespace
-        payload (string, required) - may be quoted, e.g. if contains whitespace; if starts with file://, then contents of the specified file will be used
+        topic (string) - may be quoted, e.g. if contains whitespace
+        payload (string) - may be quoted, e.g. if contains whitespace;
+                           if starts with "from-url:", then contents of the specified resource will be used, e.g. from-url:file:///tmp/test.txt
         qos (integer, optional: defaults to 0)
         retain (boolean, optional: defaults to False)
         """
@@ -436,11 +437,46 @@ class MessagingConsole(RootConsole):
                 print("Invalid value for retain; should be True or False (or Yes or No). Defaulting to False.")
                 
         return (topic, payload, qos, retain)    
+
+    def __init__(self, mqttclient):
+        """Initialize, with an MQTT client instance.
+        A message sequence counter is also reset (incremented each time a message is published)."""
+        self._mqttclient = mqttclient
+        self._msg_seq = 1
+
+    def publish(self, topic, payload, qos=0, retain=False):
+        """Publish a message, with the given parameters.
+        Substitute in the _msg_seq if the payload contains {seq}."""
+        if not topic:
+            print("Topic must be specified")
+        elif not payload: 
+            print("Payload must be specified")
+        else:
+            if "{seq}" in payload:
+                payload = payload.format(seq=self._msg_seq)
+            (result, msg_id) = self._mqttclient.publish(topic=topic, payload=payload, qos=qos, retain=retain)
+            print("...msg_id={!r}, result={} ({})".format(msg_id, result, mqtt.error_string(result)))
+            self._msg_seq += 1
+
+    def parse_publish(self, line):
+        """Publish a message, after parsing the parameters from the given string,
+        which should be formatted as follows:
+            topic  payload  [qos  [retain]]
+        topic and payload can be quoted (e.g. contain spaces)
+        qos (0, 1, or 2) is optional; defaults to 0
+        retain (true/false or yes/no) is optional; defaults to false"""
+        (topic, payload, qos, retain) = self.parse_pub_msg_input(line)
+        self.publish(topic=topic, payload=payload, qos=qos, retain=retain)
         
 
+class MessagingConsole(RootConsole):
+    """Console for performing pub/sub messaging, via an active MQTT connection.
+    """
+    
     def __init__(self, context):
         """Initialize, with a context."""
         RootConsole.__init__(self, context)
+        self._msg_publisher = MessagePublisher(self.context.mqttclient)
         self.update_prompt()
 
     def build_prompt(self):
@@ -469,18 +505,12 @@ class MessagingConsole(RootConsole):
         return True
 
     def do_publish(self, arg):
-        """Publish a message, e.g. publish  topic payload qos retain
-        topic and payload can be quoted (e.g. contain spaces)
+        """Publish a message, e.g. publish  topic  payload  [qos  [retain]]
+        topic can be quoted (e.g. contains spaces)
+        payload can be quoted (e.g. contains spaces); if contains "{seq}", then published message sequence# will be substituted
         qos (0, 1, or 2) is optional; defaults to 0
-        retain (true/false) is optional; defaults to false"""
-        (topic, payload, qos, retain) = MessagingConsole.parse_pub_msg_input(arg)
-        if not topic:
-            print("Topic must be specified")
-        elif not payload: 
-            print("Payload must be specified")
-        else:
-            (result, msg_id) = self.context.mqttclient.publish(topic=topic, payload=payload, qos=qos, retain=retain)
-            print("...msg_id={!r}, result={} ({})".format(msg_id, result, mqtt.error_string(result)))
+        retain (true/false or yes/no) is optional; defaults to false"""
+        self._msg_publisher.parse_publish(arg)
 
     def do_subscribe(self, arg):
         """Subscribe to a topic"""
@@ -493,7 +523,6 @@ class MessagingConsole(RootConsole):
         topic = arg
         (result, msg_id) = self.context.mqttclient.unsubscribe(topic)
         print("...msg_id={!r}, result={} ({})".format(msg_id, result, mqtt.error_string(result)))
-
 
 
 if __name__ == '__main__':
