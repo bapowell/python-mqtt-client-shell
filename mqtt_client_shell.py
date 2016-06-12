@@ -4,6 +4,7 @@ MQTT Client Shell Utility
 @author: Brad Powell
 """
 import cmd
+import sys
 import socket
 import random
 import getpass
@@ -11,9 +12,17 @@ import shlex
 import binascii
 import paho.mqtt.client as mqtt
 
-# Normalize the input function, to handle Python 2 or 3.
+# Normalization, to handle Python 2 or 3:
 # In Python 3, input  behaves like raw_input in Python2, and the raw_input function does not exist.
 input = getattr(__builtins__, 'raw_input', input)
+# The urllib modules were restructured in Python 3.
+if sys.version_info[0] == 2:
+    import urllib2 as urlreq
+    from urllib2 import URLError
+else:
+    import urllib.request as urlreq
+    from urllib.error import URLError
+
 
 # MQTT client callback functions:
 # The userdata object is set to a ConsoleContext instance. 
@@ -421,6 +430,23 @@ class MessagePublisher(object):
         """
         (topic, payload, qos_str, retain_str) = (shlex.split(line) + [None]*4)[:4]
         
+        if payload.lower().startswith("from-url:"):
+            try:
+                url = payload[9:]        
+                print('For payload, reading from: ' + url)
+                r = urlreq.urlopen(url)
+                url_payload = r.read()
+                print('Payload length is: ' + str(len(url_payload)))
+                if sys.version_info[0] == 2:
+                    charset = r.headers.getparam('charset')
+                else:
+                    charset = r.headers.get_content_charset()
+                print('Payload charset is: ' + str(charset))
+                payload = url_payload.decode(charset or 'ascii')
+            except URLError as e:
+                print('Problem trying to read from the URL:\n' + str(e))
+                print('Reverting payload back to: ' + payload)
+        
         qos = 0
         if qos_str:
             if qos_str.isdigit() and (0 <= int(qos_str) <= 2):
@@ -481,7 +507,6 @@ class MessagingConsole(RootConsole):
 
     def build_prompt(self):
         """Build and return the prompt string for this console."""
-        #print("self.context.prompt_verbosity: " + self.context.prompt_verbosity)
         p = ""
         if self.context.prompt_verbosity == "H":
             p = ("\n***CONNECTED***" + 
@@ -507,7 +532,9 @@ class MessagingConsole(RootConsole):
     def do_publish(self, arg):
         """Publish a message, e.g. publish  topic  payload  [qos  [retain]]
         topic can be quoted (e.g. contains spaces)
-        payload can be quoted (e.g. contains spaces); if contains "{seq}", then published message sequence# will be substituted
+        payload can be quoted (e.g. contains spaces);
+            if contains "{seq}", then published message sequence# will be substituted;
+            if starts with "from-url:", then contents of the specified resource will be used, e.g. from-url:file:///tmp/test.txt
         qos (0, 1, or 2) is optional; defaults to 0
         retain (true/false or yes/no) is optional; defaults to false"""
         self._msg_publisher.parse_publish(arg)
