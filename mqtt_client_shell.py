@@ -5,11 +5,13 @@ MQTT Client Shell Utility
 """
 import cmd
 import sys
+import traceback
 import socket
 import random
 import getpass
 import shlex
 import binascii
+from collections import namedtuple
 import paho.mqtt.client as mqtt
 
 # Normalization, to handle Python 2 or 3:
@@ -56,6 +58,11 @@ def on_log(mqttclient, userdata, level, string):
     if userdata.logging_enabled:
         print("on_log(): level={} - {}".format(level, string))
 # -----------------------------------------------------------------------------
+
+
+Message = namedtuple('Message', ['topic', 'payload', 'qos', 'retain'])
+
+Subscription = namedtuple('Subscription', ['topic', 'qos'])
 
 
 class ClientArgs(object):
@@ -122,7 +129,7 @@ class ClientArgs(object):
 class ConnectionArgs(object):
     """Container to manage arguments for an MQTT connection."""
     
-    def __init__(self, host="", port=None, keepalive=None, bind_address="", username="", password=""):
+    def __init__(self, host="", port=None, keepalive=None, bind_address="", username="", password="", will=None):
         """Initialize ConnectionArgs with default or passed-in values."""
         self._default_host = "localhost"
         self.host = host
@@ -133,6 +140,7 @@ class ConnectionArgs(object):
         self.bind_address = bind_address
         self.username = username
         self.password = password
+        self.will = will  # a Message
 
     @property
     def host(self):
@@ -169,9 +177,9 @@ class ConnectionArgs(object):
             self._keepalive = int(value)
         
     def __str__(self):
-        return "Connection args: host={}, port={}, keepalive={}, bind_address={}, username={}, password={}".format(
+        return "Connection args: host={}, port={}, keepalive={}, bind_address={}, username={}, password={}, will={}".format(
                self.host, self.port, self.keepalive, self.bind_address,
-               self.username, '*'*len(self.password))
+               self.username, '*'*len(self.password), self.will)
 
 
 class MessagePublisher(object):
@@ -179,8 +187,8 @@ class MessagePublisher(object):
     """
     
     @staticmethod
-    def parse_pub_msg_input(line):
-        """Parse a space-delimited line of text designating the parameters for a message publish: topic payload qos retain
+    def parse_msg_input(line):
+        """Parse a space-delimited line of text designating the parameters for a message: topic payload qos retain
         topic (string) - may be quoted, e.g. if contains whitespace
         payload (string) - may be quoted, e.g. if contains whitespace;
                            if starts with "from-url:", then contents of the specified resource will be used, e.g. from-url:file:///tmp/test.txt
@@ -189,7 +197,7 @@ class MessagePublisher(object):
         """
         (topic, payload, qos_str, retain_str) = (shlex.split(line) + [None]*4)[:4]
         
-        if payload.lower().startswith("from-url:"):
+        if (payload and payload.lower().startswith("from-url:")):
             try:
                 url = payload[9:]        
                 print('For payload, reading from: ' + url)
@@ -221,7 +229,7 @@ class MessagePublisher(object):
             elif retain_str not in ('false', 'f', 'no', 'n', '0'):
                 print("Invalid value for retain; should be True or False (or Yes or No). Defaulting to False.")
                 
-        return (topic, payload, qos, retain)    
+        return Message(topic, payload, qos, retain)    
 
     def __init__(self, mqttclient):
         """Initialize, with an MQTT client instance.
@@ -244,6 +252,11 @@ class MessagePublisher(object):
             if result == mqtt.MQTT_ERR_SUCCESS:
                 self._msg_seq += 1
 
+    def publish_msg(self, msg):
+        """Publish the given Message (namedtuple).
+        Substitute in the _msg_seq if the payload contains {seq}."""
+        self.publish(topic=msg.topic, payload=msg.payload, qos=msg.qos, retain=msg.retain)
+
     def parse_publish(self, line):
         """Publish a message, after parsing the parameters from the given string, which
         should be formatted as follows:
@@ -251,8 +264,8 @@ class MessagePublisher(object):
         topic and payload can be quoted (e.g. contain spaces)
         qos (0, 1, or 2) is optional; defaults to 0
         retain (true/false or yes/no) is optional; defaults to false"""
-        (topic, payload, qos, retain) = self.parse_pub_msg_input(line)
-        self.publish(topic=topic, payload=payload, qos=qos, retain=retain)
+        msg = self.parse_msg_input(line)
+        self.publish_msg(msg)
         
 
 class SubscriptionHandler(object):
@@ -260,7 +273,7 @@ class SubscriptionHandler(object):
     """
     
     @staticmethod
-    def parse_topic_sub_input(line):
+    def parse_sub_input(line):
         """Parse a space-delimited line of text designating the parameters for a topic subscription: topic qos
         topic (string) - may be quoted, e.g. if contains whitespace
         qos (integer, optional: defaults to 0)
@@ -272,23 +285,30 @@ class SubscriptionHandler(object):
                 qos = int(qos_str)
             else:
                 print("Invalid QoS value; should be 0, 1, or 2. Defaulting to 0.")
-        return (topic, qos)    
+        return Subscription(topic, qos)    
 
     def __init__(self, mqttclient):
         """Initialize, with an MQTT client instance.
-        A set, to contain active subscription topics, is also created."""
+        A set, to contain active subscriptions (Subscription namedtuples), is also created."""
         self._mqttclient = mqttclient
-        self._subscription_topics = set()
+        self._subscriptions = set()
 
-    def subscribe(self, topic, qos=0):
-        """Subscribe to a topic."""
-        if not topic:
+    def _discard_sub(self, topic):
+        """Remove a Subscription, identified with the given topic, from the _subscriptions set."""  
+        for s in self._subscriptions.copy():
+            if s.topic == topic:
+                self._subscriptions.remove(s)
+
+    def subscribe(self, sub):
+        """Subscribe to a topic, using the Subscription (namedtuple)."""
+        if not sub.topic:
             print("Topic must be specified")
         else:
-            (result, msg_id) = self._mqttclient.subscribe(topic=topic, qos=qos)
+            (result, msg_id) = self._mqttclient.subscribe(topic=sub.topic, qos=(sub.qos or 0))
             print("...msg_id={!r}, result={} ({})".format(msg_id, result, mqtt.error_string(result)))
             if result == mqtt.MQTT_ERR_SUCCESS:
-                self._subscription_topics.add(topic)
+                self._discard_sub(sub.topic)   # do not want two Subscriptions with same topic, but different qos
+                self._subscriptions.add(sub)
 
     def parse_subscribe(self, line):
         """Subscribe to a topic, after parsing the parameters from the given string, which
@@ -296,8 +316,8 @@ class SubscriptionHandler(object):
             topic [qos]
         topic can be quoted (e.g. contain spaces)
         qos (0, 1, or 2) is optional; defaults to 0"""
-        (topic, qos) = self.parse_topic_sub_input(line)
-        self.subscribe(topic=topic, qos=qos)
+        sub = self.parse_sub_input(line)
+        self.subscribe(sub)
         
     def unsubscribe(self, topic):
         """Unsubscribe from a topic."""
@@ -307,16 +327,16 @@ class SubscriptionHandler(object):
             (result, msg_id) = self._mqttclient.unsubscribe(topic)
             print("...msg_id={!r}, result={} ({})".format(msg_id, result, mqtt.error_string(result)))
             if result == mqtt.MQTT_ERR_SUCCESS:
-                self._subscription_topics.discard(topic)
+                self._discard_sub(topic)
 
     def unsubscribe_all(self):
         """Unsubscribe from all active subscriptions."""
-        for t in self._subscription_topics.copy():
-            self.unsubscribe(t)
+        for s in self._subscriptions.copy():
+            self.unsubscribe(s.topic)
 
     def subscription_topics_str(self):
         """Return a comma-separated list of the currently active subscriptions."""
-        return ', '.join([str(t) for t in self._subscription_topics])
+        return ', '.join(["(topic={},qos={})".format(s.topic, s.qos) for s in self._subscriptions])
 
 
 class ConsoleContext(object):
@@ -528,17 +548,29 @@ class ConnectionConsole(RootConsole):
         """Prompt for the password for MQTT server authentication (if username is blank, then this is not used)"""
         self.context.connection_args.password = getpass.getpass()
 
+    def do_will(self, arg):
+        """Set a Will (a.k.a. Last Will and Testament), e.g. will topic [payload [qos [retain]]]
+        topic can be quoted (e.g. contains spaces)
+        payload can be quoted (e.g. contains spaces);
+        qos (0, 1, or 2) is optional; defaults to 0
+        retain (true/false or yes/no) is optional; defaults to false"""
+        self.context.connection_args.will = MessagePublisher.parse_msg_input(arg)
+
     def do_connect(self, arg):
         """Connect to the MQTT server, using the current connection parameters.
-        If connection successful, then go to the "Messaging" console."""
+        If connection successful, then go to the Messaging console."""
         connected = None
-        try:
-            if self.context.connection_args.username:
-                self.context.mqttclient.username_pw_set(self.context.connection_args.username,
-                                                        self.context.connection_args.password)
-            else:
-                self.context.mqttclient.username_pw_set("", None)
 
+        if self.context.connection_args.username:
+            self.context.mqttclient.username_pw_set(self.context.connection_args.username, self.context.connection_args.password)
+        else:
+            self.context.mqttclient.username_pw_set("", None)
+
+        if self.context.connection_args.will:
+            lwt = self.context.connection_args.will
+            self.context.mqttclient.will_set(topic=lwt.topic, payload=lwt.payload, qos=lwt.qos, retain=lwt.retain)
+
+        try:
             rc = self.context.mqttclient.connect(host=self.context.connection_args.host,
                                                  port=self.context.connection_args.port,
                                                  keepalive=60,
@@ -602,13 +634,21 @@ class MessagingConsole(RootConsole):
             if starts with "from-url:", then contents of the specified resource will be used, e.g. from-url:file:///home/fred/test.txt
         qos (0, 1, or 2) is optional; defaults to 0
         retain (true/false or yes/no) is optional; defaults to false"""
-        self._msg_publisher.parse_publish(arg)
+        try:
+            self._msg_publisher.parse_publish(arg)
+        except:
+            print("Unexpected error:")
+            traceback.print_exc()
 
     def do_subscribe(self, arg):
         """Subscribe to a topic, e.g. subscribe topic [qos]
         topic can be quoted (e.g. contains spaces)
         qos (0, 1, or 2) is optional; defaults to 0"""
-        self._sub_handler.parse_subscribe(arg)
+        try:
+            self._sub_handler.parse_subscribe(arg)
+        except:
+            print("Unexpected error:")
+            traceback.print_exc()
 
     def do_unsubscribe(self, arg):
         """Unsubscribe from a topic, e.g. unsubscribe topic
