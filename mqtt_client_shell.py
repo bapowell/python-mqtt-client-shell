@@ -174,6 +174,151 @@ class ConnectionArgs(object):
                self.username, '*'*len(self.password))
 
 
+class MessagePublisher(object):
+    """Assist with publishing a message via MQTT.
+    """
+    
+    @staticmethod
+    def parse_pub_msg_input(line):
+        """Parse a space-delimited line of text designating the parameters for a message publish: topic payload qos retain
+        topic (string) - may be quoted, e.g. if contains whitespace
+        payload (string) - may be quoted, e.g. if contains whitespace;
+                           if starts with "from-url:", then contents of the specified resource will be used, e.g. from-url:file:///tmp/test.txt
+        qos (integer, optional: defaults to 0)
+        retain (boolean, optional: defaults to False)
+        """
+        (topic, payload, qos_str, retain_str) = (shlex.split(line) + [None]*4)[:4]
+        
+        if payload.lower().startswith("from-url:"):
+            try:
+                url = payload[9:]        
+                print('For payload, reading from: ' + url)
+                r = urlreq.urlopen(url)
+                url_payload = r.read()
+                print('Payload length is: ' + str(len(url_payload)))
+                if sys.version_info[0] == 2:
+                    charset = r.headers.getparam('charset')
+                else:
+                    charset = r.headers.get_content_charset()
+                print('Payload charset is: ' + str(charset))
+                payload = url_payload.decode(charset or 'ascii')
+            except URLError as e:
+                print('Problem trying to read from the URL:\n' + str(e))
+                print('Reverting payload back to: ' + payload)
+        
+        qos = 0
+        if qos_str:
+            if qos_str.isdigit() and (0 <= int(qos_str) <= 2):
+                qos = int(qos_str)
+            else:
+                print("Invalid QoS value; should be 0, 1, or 2. Defaulting to 0.")
+                 
+        retain = False
+        if retain_str:
+            retain_str = retain_str.strip().lower()
+            if retain_str in ('true', 't', 'yes', 'y', '1'):
+                retain = True
+            elif retain_str not in ('false', 'f', 'no', 'n', '0'):
+                print("Invalid value for retain; should be True or False (or Yes or No). Defaulting to False.")
+                
+        return (topic, payload, qos, retain)    
+
+    def __init__(self, mqttclient):
+        """Initialize, with an MQTT client instance.
+        A message sequence counter is also reset (incremented each time a message is successfully published)."""
+        self._mqttclient = mqttclient
+        self._msg_seq = 1
+
+    def publish(self, topic, payload, qos=0, retain=False):
+        """Publish a message, with the given parameters.
+        Substitute in the _msg_seq if the payload contains {seq}."""
+        if not topic:
+            print("Topic must be specified")
+        elif not payload: 
+            print("Payload must be specified")
+        else:
+            if "{seq}" in payload:
+                payload = payload.format(seq=self._msg_seq)
+            (result, msg_id) = self._mqttclient.publish(topic=topic, payload=payload, qos=qos, retain=retain)
+            print("...msg_id={!r}, result={} ({})".format(msg_id, result, mqtt.error_string(result)))
+            if result == mqtt.MQTT_ERR_SUCCESS:
+                self._msg_seq += 1
+
+    def parse_publish(self, line):
+        """Publish a message, after parsing the parameters from the given string, which
+        should be formatted as follows:
+            topic  payload  [qos  [retain]]
+        topic and payload can be quoted (e.g. contain spaces)
+        qos (0, 1, or 2) is optional; defaults to 0
+        retain (true/false or yes/no) is optional; defaults to false"""
+        (topic, payload, qos, retain) = self.parse_pub_msg_input(line)
+        self.publish(topic=topic, payload=payload, qos=qos, retain=retain)
+        
+
+class SubscriptionHandler(object):
+    """Assist with MQTT subscriptions.
+    """
+    
+    @staticmethod
+    def parse_topic_sub_input(line):
+        """Parse a space-delimited line of text designating the parameters for a topic subscription: topic qos
+        topic (string) - may be quoted, e.g. if contains whitespace
+        qos (integer, optional: defaults to 0)
+        """
+        (topic, qos_str) = (shlex.split(line) + [None]*2)[:2]
+        qos = 0
+        if qos_str:
+            if qos_str.isdigit() and (0 <= int(qos_str) <= 2):
+                qos = int(qos_str)
+            else:
+                print("Invalid QoS value; should be 0, 1, or 2. Defaulting to 0.")
+        return (topic, qos)    
+
+    def __init__(self, mqttclient):
+        """Initialize, with an MQTT client instance.
+        A set, to contain active subscription topics, is also created."""
+        self._mqttclient = mqttclient
+        self._subscription_topics = set()
+
+    def subscribe(self, topic, qos=0):
+        """Subscribe to a topic."""
+        if not topic:
+            print("Topic must be specified")
+        else:
+            (result, msg_id) = self._mqttclient.subscribe(topic=topic, qos=qos)
+            print("...msg_id={!r}, result={} ({})".format(msg_id, result, mqtt.error_string(result)))
+            if result == mqtt.MQTT_ERR_SUCCESS:
+                self._subscription_topics.add(topic)
+
+    def parse_subscribe(self, line):
+        """Subscribe to a topic, after parsing the parameters from the given string, which
+        should be formatted as follows:
+            topic [qos]
+        topic can be quoted (e.g. contain spaces)
+        qos (0, 1, or 2) is optional; defaults to 0"""
+        (topic, qos) = self.parse_topic_sub_input(line)
+        self.subscribe(topic=topic, qos=qos)
+        
+    def unsubscribe(self, topic):
+        """Unsubscribe from a topic."""
+        if not topic:
+            print("Topic must be specified")
+        else:
+            (result, msg_id) = self._mqttclient.unsubscribe(topic)
+            print("...msg_id={!r}, result={} ({})".format(msg_id, result, mqtt.error_string(result)))
+            if result == mqtt.MQTT_ERR_SUCCESS:
+                self._subscription_topics.discard(topic)
+
+    def unsubscribe_all(self):
+        """Unsubscribe from all active subscriptions."""
+        for t in self._subscription_topics.copy():
+            self.unsubscribe(t)
+
+    def subscription_topics_str(self):
+        """Return a comma-separated list of the currently active subscriptions."""
+        return ', '.join([str(t) for t in self._subscription_topics])
+
+
 class ConsoleContext(object):
     """Container for sharing objects among consoles."""
 
@@ -414,151 +559,6 @@ class ConnectionConsole(RootConsole):
                 self.context.mqttclient.loop_stop()
 
 
-class MessagePublisher(object):
-    """Assist with publishing a message via MQTT.
-    """
-    
-    @staticmethod
-    def parse_pub_msg_input(line):
-        """Parse a space-delimited line of text designating the parameters for a message publish: topic payload qos retain
-        topic (string) - may be quoted, e.g. if contains whitespace
-        payload (string) - may be quoted, e.g. if contains whitespace;
-                           if starts with "from-url:", then contents of the specified resource will be used, e.g. from-url:file:///tmp/test.txt
-        qos (integer, optional: defaults to 0)
-        retain (boolean, optional: defaults to False)
-        """
-        (topic, payload, qos_str, retain_str) = (shlex.split(line) + [None]*4)[:4]
-        
-        if payload.lower().startswith("from-url:"):
-            try:
-                url = payload[9:]        
-                print('For payload, reading from: ' + url)
-                r = urlreq.urlopen(url)
-                url_payload = r.read()
-                print('Payload length is: ' + str(len(url_payload)))
-                if sys.version_info[0] == 2:
-                    charset = r.headers.getparam('charset')
-                else:
-                    charset = r.headers.get_content_charset()
-                print('Payload charset is: ' + str(charset))
-                payload = url_payload.decode(charset or 'ascii')
-            except URLError as e:
-                print('Problem trying to read from the URL:\n' + str(e))
-                print('Reverting payload back to: ' + payload)
-        
-        qos = 0
-        if qos_str:
-            if qos_str.isdigit() and (0 <= int(qos_str) <= 2):
-                qos = int(qos_str)
-            else:
-                print("Invalid QoS value; should be 0, 1, or 2. Defaulting to 0.")
-                 
-        retain = False
-        if retain_str:
-            retain_str = retain_str.strip().lower()
-            if retain_str in ('true', 't', 'yes', 'y', '1'):
-                retain = True
-            elif retain_str not in ('false', 'f', 'no', 'n', '0'):
-                print("Invalid value for retain; should be True or False (or Yes or No). Defaulting to False.")
-                
-        return (topic, payload, qos, retain)    
-
-    def __init__(self, mqttclient):
-        """Initialize, with an MQTT client instance.
-        A message sequence counter is also reset (incremented each time a message is successfully published)."""
-        self._mqttclient = mqttclient
-        self._msg_seq = 1
-
-    def publish(self, topic, payload, qos=0, retain=False):
-        """Publish a message, with the given parameters.
-        Substitute in the _msg_seq if the payload contains {seq}."""
-        if not topic:
-            print("Topic must be specified")
-        elif not payload: 
-            print("Payload must be specified")
-        else:
-            if "{seq}" in payload:
-                payload = payload.format(seq=self._msg_seq)
-            (result, msg_id) = self._mqttclient.publish(topic=topic, payload=payload, qos=qos, retain=retain)
-            print("...msg_id={!r}, result={} ({})".format(msg_id, result, mqtt.error_string(result)))
-            if result == mqtt.MQTT_ERR_SUCCESS:
-                self._msg_seq += 1
-
-    def parse_publish(self, line):
-        """Publish a message, after parsing the parameters from the given string, which
-        should be formatted as follows:
-            topic  payload  [qos  [retain]]
-        topic and payload can be quoted (e.g. contain spaces)
-        qos (0, 1, or 2) is optional; defaults to 0
-        retain (true/false or yes/no) is optional; defaults to false"""
-        (topic, payload, qos, retain) = self.parse_pub_msg_input(line)
-        self.publish(topic=topic, payload=payload, qos=qos, retain=retain)
-        
-
-class SubscriptionHandler(object):
-    """Assist with MQTT subscriptions.
-    """
-    
-    @staticmethod
-    def parse_topic_sub_input(line):
-        """Parse a space-delimited line of text designating the parameters for a topic subscription: topic qos
-        topic (string) - may be quoted, e.g. if contains whitespace
-        qos (integer, optional: defaults to 0)
-        """
-        (topic, qos_str) = (shlex.split(line) + [None]*2)[:2]
-        qos = 0
-        if qos_str:
-            if qos_str.isdigit() and (0 <= int(qos_str) <= 2):
-                qos = int(qos_str)
-            else:
-                print("Invalid QoS value; should be 0, 1, or 2. Defaulting to 0.")
-        return (topic, qos)    
-
-    def __init__(self, mqttclient):
-        """Initialize, with an MQTT client instance.
-        A set, to contain active subscription topics, is also created."""
-        self._mqttclient = mqttclient
-        self._subscription_topics = set()
-
-    def subscribe(self, topic, qos=0):
-        """Subscribe to a topic."""
-        if not topic:
-            print("Topic must be specified")
-        else:
-            (result, msg_id) = self._mqttclient.subscribe(topic=topic, qos=qos)
-            print("...msg_id={!r}, result={} ({})".format(msg_id, result, mqtt.error_string(result)))
-            if result == mqtt.MQTT_ERR_SUCCESS:
-                self._subscription_topics.add(topic)
-
-    def parse_subscribe(self, line):
-        """Subscribe to a topic, after parsing the parameters from the given string, which
-        should be formatted as follows:
-            topic [qos]
-        topic can be quoted (e.g. contain spaces)
-        qos (0, 1, or 2) is optional; defaults to 0"""
-        (topic, qos) = self.parse_topic_sub_input(line)
-        self.subscribe(topic=topic, qos=qos)
-        
-    def unsubscribe(self, topic):
-        """Unsubscribe from a topic."""
-        if not topic:
-            print("Topic must be specified")
-        else:
-            (result, msg_id) = self._mqttclient.unsubscribe(topic)
-            print("...msg_id={!r}, result={} ({})".format(msg_id, result, mqtt.error_string(result)))
-            if result == mqtt.MQTT_ERR_SUCCESS:
-                self._subscription_topics.discard(topic)
-
-    def unsubscribe_all(self):
-        """Unsubscribe from all active subscriptions."""
-        for t in self._subscription_topics.copy():
-            self.unsubscribe(t)
-
-    def subscription_topics_str(self):
-        """Return a comma-separated list of the currently active subscriptions."""
-        return ', '.join([str(t) for t in self._subscription_topics])
-
-
 class MessagingConsole(RootConsole):
     """Console for performing pub/sub messaging, via an active MQTT connection.
     """
@@ -632,71 +632,3 @@ if __name__ == '__main__':
     if ctx.mqttclient:
         ctx.mqttclient.disconnect()
         ctx.mqttclient.loop_stop()
-
-
-"""
-
-sub_topic = "#"
-pub_topic = "test"
-pub_msg_template = "Test message {}"
-pub_msg_subst = "0"
-
-connected = False
-
-k = None
-
-while True:
-    k = input("\n===== {}onnect P)ublish S)ubscribe U)nsubscribe L)og[{}] Q)uit =====\n".format("D)isc" if connected else "C)", log_enabled)).upper()
-
-    if k == "C":
-        host = input("Host (<Enter> for '{}'): ".format(host)).strip() or host
-        port = int(input("Port (<Enter> for {}): ".format(port)).strip() or port)
-        username = input("Username (<Enter> for {}): ".format(username)).strip() or username
-        if username:
-            password = input("Password (<Enter> for {}): ".format(password)).strip() or password
-            mqttc.username_pw_set(username, password)
-        print("...connecting to {}:{} (client_id={}, keepalive=60, clean_session=True)".format(host, port, client_id))
-        try:
-            rc = mqttc.connect(host, port, keepalive=60)
-            connected = (rc == mqtt.MQTT_ERR_SUCCESS)
-        except socket.error as e:
-            print(e)
-        mqttc.loop_start()
-
-    elif k == "D":
-        mqttc.disconnect()
-        connected = False
-        mqttc.loop_stop()
-
-    elif k == "P":
-        pub_topic = input("Publish to topic (<Enter> for '{}'): ".format(pub_topic)).strip() or pub_topic
-        pub_msg_template = input("Publish message template ({{}} replaced with next input) (<Enter> for '{}'): ".format(pub_msg_template)).strip() or pub_msg_template
-        payld = pub_msg_template
-        if '{}' in pub_msg_template:
-            pub_msg_subst = str(1 + int(pub_msg_subst)) if pub_msg_subst.isdigit() else pub_msg_subst 
-            pub_msg_subst = input("{{}} substitution (<Enter> for {}): ".format(pub_msg_subst)).strip() or pub_msg_subst
-            payld = pub_msg_template.format(pub_msg_subst)
-        print("...publishing message '{}' to topic '{}'  (qos=0, retain=False)".format(payld, pub_topic))
-        (result, msg_id) = mqttc.publish(pub_topic, payload=payld, qos=0, retain=False)
-        print("...msg_id={!r}, result={} ({})".format(msg_id, result, mqtt.error_string(result)))
-
-    elif k == "S":
-        sub_topic = input("Subscribe to topic (<Enter> for '{}'): ".format(sub_topic)).strip() or sub_topic
-        print("...subscribing to topic: {}  (qos=0)".format(sub_topic))
-        mqttc.subscribe(sub_topic, qos=0)
-
-    elif k == "U":
-        sub_topic = input("Unsubscribe from topic (<Enter> for '{}'): ".format(sub_topic)).strip() or sub_topic
-        print("...unsubscribing from topic: " + sub_topic)
-        mqttc.unsubscribe(sub_topic)
-
-    elif k == "L":
-        log_enabled = not log_enabled
-
-    elif k == "Q":
-        break
-
-    else:
-        print("Command not recognized")
-
-"""
