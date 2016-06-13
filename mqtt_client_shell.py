@@ -336,7 +336,8 @@ class SubscriptionHandler(object):
 
     def subscription_topics_str(self):
         """Return a comma-separated list of the currently active subscriptions."""
-        return ', '.join(["(topic={},qos={})".format(s.topic, s.qos) for s in self._subscriptions])
+        sorted_subs = sorted(self._subscriptions, key=lambda sub: sub.topic)
+        return ', '.join(["(topic={},qos={})".format(s.topic, s.qos) for s in sorted_subs])
 
 
 class ConsoleContext(object):
@@ -477,11 +478,8 @@ class MainConsole(RootConsole):
 
     def do_connection(self, arg):
         """Go to the Connection console, after establishing an MQTT client (using the current MQTT client args)"""
-        self.context.mqttclient = mqtt.Client(
-                        client_id=self.context.client_args.client_id,
-                        clean_session=self.context.client_args.clean_session,
-                        userdata=self.context, 
-                        protocol=self.context.client_args.protocol)
+        ca = self.context.client_args
+        self.context.mqttclient = mqtt.Client(client_id=ca.client_id, clean_session=ca.clean_session, userdata=self.context, protocol=ca.protocol)
         # Set the client callbacks:
         self.context.mqttclient.on_connect = on_connect
         self.context.mqttclient.on_disconnect = on_disconnect
@@ -560,21 +558,18 @@ class ConnectionConsole(RootConsole):
         """Connect to the MQTT server, using the current connection parameters.
         If connection successful, then go to the Messaging console."""
         connected = None
-
-        if self.context.connection_args.username:
-            self.context.mqttclient.username_pw_set(self.context.connection_args.username, self.context.connection_args.password)
+        ca = self.context.connection_args
+        
+        if ca.username:
+            self.context.mqttclient.username_pw_set(ca.username, ca.password)
         else:
             self.context.mqttclient.username_pw_set("", None)
 
-        if self.context.connection_args.will:
-            lwt = self.context.connection_args.will
-            self.context.mqttclient.will_set(topic=lwt.topic, payload=lwt.payload, qos=lwt.qos, retain=lwt.retain)
+        if ca.will:
+            self.context.mqttclient.will_set(topic=ca.will.topic, payload=ca.will.payload, qos=ca.will.qos, retain=ca.will.retain)
 
         try:
-            rc = self.context.mqttclient.connect(host=self.context.connection_args.host,
-                                                 port=self.context.connection_args.port,
-                                                 keepalive=60,
-                                                 bind_address="")
+            rc = self.context.mqttclient.connect(host=ca.host, port=ca.port, keepalive=ca.keepalive, bind_address=ca.bind_address)
             connected = (rc == mqtt.MQTT_ERR_SUCCESS)
         except socket.error as e:
             print(e)
