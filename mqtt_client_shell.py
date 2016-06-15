@@ -354,9 +354,10 @@ class ConsoleContext(object):
     def prompt_verbosity_levels_str(cls):
         return cls._prompt_verbosity_levels_str
 
-    def __init__(self, logging_enabled=True, prompt_verbosity=None, client_args=None, mqttclient=None, connection_args=None):
+    def __init__(self, logging_enabled=True, recording_file=None, prompt_verbosity=None, client_args=None, mqttclient=None, connection_args=None):
         """Initialize ConsoleContext with default or passed-in values."""
         self.logging_enabled = logging_enabled
+        self.recording_file = recording_file
         self._default_prompt_verbosity = "H"
         self.prompt_verbosity = prompt_verbosity
         self.client_args = client_args
@@ -389,11 +390,11 @@ class RootConsole(cmd.Cmd):
 
     def build_prompt(self):
         """Build and return the prompt string for this console.
-        Override this in child consoles.
-        """
+        Override this in child consoles."""
         p = "> "
         if self.context.prompt_verbosity in ("M", "H"):
-            p = "Logging: {}\n> ".format(self.context.logging_enabled and 'on' or 'off')
+            p = "Logging: {}, Recording: {}\n> ".format(self.context.logging_enabled and 'on' or 'off',
+                                                        self.context.recording_file and self.context.recording_file.name or 'off')
             if self.context.prompt_verbosity == "H":
                 p = "\n" + p
         return p
@@ -402,8 +403,14 @@ class RootConsole(cmd.Cmd):
         """Refresh the prompt."""
         self.prompt = self.build_prompt() 
 
+    def precmd(self, line):
+        """(override) Called just before the command line 'line' is interpreted."""
+        if self.context.recording_file and line and ('stop_recording' not in line.lower()):
+            self.context.recording_file.write(line + '\n')
+        return line
+    
     def postcmd(self, stop, line):
-        """Called after any command dispatch is finished."""
+        """(override) Called after any command dispatch is finished."""
         self.update_prompt()
         return stop
     
@@ -421,8 +428,32 @@ class RootConsole(cmd.Cmd):
         print("Set the verbosity level, currently {}, of the console prompt ({}) (blank arg sets back to default), e.g. prompt_verbosity {}".format(
               self.context.prompt_verbosity, self.context.prompt_verbosity_levels_str(), next(iter(self.context.prompt_verbosity_levels()))))
 
+    def do_record(self, arg):
+        """Start recording commands to the given file, e.g. record session1.cmd
+        If the file exists, commands will be appended to it."""
+        self.context.recording_file = open(arg, 'a')
+        print("Commands will now be recorded to file: {}.".format(arg))
+
+    def do_stop_recording(self, arg):
+        """Stop recording commands to the given file"""
+        if not self.context.recording_file:
+            print("Not currently recording commands")
+        else:
+            print("Command recording stopped. Closing file: {}".format(self.context.recording_file.name))
+            self._close_recording_file()
+            
+    def do_playback(self, arg):
+        """Play back commands from the given file, e.g. playback session1.cmd"""
+        try:
+            with open(arg, 'r') as f:
+                self.cmdqueue.extend(f.read().splitlines())
+        except:
+            print("Unexpected error:")
+            traceback.print_exc()
+
     def do_exit(self, arg):
         """Exit the current console"""
+        self._close_recording_file()
         return True
 
     def do_quit(self, arg):
@@ -432,6 +463,13 @@ class RootConsole(cmd.Cmd):
     def do_EOF(self, arg):
         """For those systems supporting it, allows using Ctrl-D to exit the current console"""
         return self.do_exit(arg)
+
+    def _close_recording_file(self):
+        """Close the recording file, if currently open."""
+        if self.context.recording_file:
+            self.context.recording_file.close()
+            self.context.recording_file = None
+           
 
 
 class MainConsole(RootConsole):
