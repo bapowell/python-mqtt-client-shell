@@ -26,6 +26,21 @@ else:
     from urllib.error import URLError
 
 
+def str2bool(s, default=None, msg=None):
+    """Helper function to return True/False, based on the given string."""
+    b = default
+    if s:
+        s = s.strip().lower()
+        if s in ('true', 't', 'yes', 'y', 'on', 'enable', '1'):
+            b = True
+        elif s in ('false', 'f', 'no', 'n', 'off', 'disable', '0'):
+            b = False
+        else:
+            print("Invalid value{}; should be True/False, Yes/No, On/Off, Enable/Disable, or 1/0. Defaulting to {}.".
+                  format((msg and ' (' + msg + ')' or ''), default))
+    return b    
+
+
 # MQTT client callback functions:
 # The userdata object is set to a ConsoleContext instance. 
 # -----------------------------------------------------------------------------
@@ -93,7 +108,14 @@ class ClientArgs(object):
     
     @clean_session.setter
     def clean_session(self, value):
-        self._clean_session = value 
+        if not value:
+            # toggle
+            self._clean_session = not self._clean_session
+        elif type(value) is str:
+            self._clean_session = str2bool(value, default=self._clean_session, msg='for clean_session')
+        else:
+            self._clean_session = value
+             
         if not self._clean_session:
             print("\n***** Be VERY careful connecting with clean_session=False *****")
         
@@ -221,13 +243,7 @@ class MessagePublisher(object):
             else:
                 print("Invalid QoS value; should be 0, 1, or 2. Defaulting to 0.")
                  
-        retain = False
-        if retain_str:
-            retain_str = retain_str.strip().lower()
-            if retain_str in ('true', 't', 'yes', 'y', '1'):
-                retain = True
-            elif retain_str not in ('false', 'f', 'no', 'n', '0'):
-                print("Invalid value for retain; should be True or False (or Yes or No). Defaulting to False.")
+        retain = str2bool(retain_str, default=False, msg="for retain")
                 
         return Message(topic, payload, qos, retain)    
 
@@ -354,10 +370,12 @@ class ConsoleContext(object):
     def prompt_verbosity_levels_str(cls):
         return cls._prompt_verbosity_levels_str
 
-    def __init__(self, logging_enabled=True, recording_file=None, prompt_verbosity=None, client_args=None, mqttclient=None, connection_args=None):
+    def __init__(self, logging_enabled=True, recording_file=None, playback_file=None,
+                 prompt_verbosity=None, client_args=None, mqttclient=None, connection_args=None):
         """Initialize ConsoleContext with default or passed-in values."""
         self.logging_enabled = logging_enabled
         self.recording_file = recording_file
+        self.playback_file = playback_file
         self._default_prompt_verbosity = "H"
         self.prompt_verbosity = prompt_verbosity
         self.client_args = client_args
@@ -379,6 +397,22 @@ class ConsoleContext(object):
             else: 
                 self._prompt_verbosity = value
         
+    def close_recording_file(self):
+        """Close the recording file, if currently open."""
+        #print("Check closing recording file")
+        if self.recording_file:
+            print("Closing recording file: {}".format(self.recording_file.name))
+            self.recording_file.close()
+            self.recording_file = None
+           
+    def close_playback_file(self):
+        """Close the playback file, if currently open."""
+        #print("Check closing playback file")
+        if self.playback_file:
+            print("Closing playback file: {}".format(self.playback_file.name))
+            self.playback_file.close()
+            self.playback_file = None
+
 
 class RootConsole(cmd.Cmd):
     """Parent of other Console (Cmd) objects."""
@@ -403,21 +437,44 @@ class RootConsole(cmd.Cmd):
         """Refresh the prompt."""
         self.prompt = self.build_prompt() 
 
+    def _playback_file_cmd(self):
+        """Check playback file, and run next command, if available."""
+        if self.context.playback_file:
+            playcmd = self.context.playback_file.readline().rstrip("\r\n")
+            if playcmd:
+                print("--> Running command: '{}'\t({})".format(playcmd, self.__class__.__name__))
+                self.cmdqueue.extend([playcmd])
+            else:
+                self.context.close_playback_file()
+
+    def preloop(self):
+        """(override) Executed once when cmdloop() is called."""
+        #print("{} - preloop".format(self.__class__.__name__))
+        self._playback_file_cmd()
+    
     def precmd(self, line):
         """(override) Called just before the command line 'line' is interpreted."""
-        if self.context.recording_file and line and ('stop_recording' not in line.lower()):
-            self.context.recording_file.write(line + '\n')
+        if self.context.recording_file and line:
+            if not any(substr in line.lower() for substr in ['playback', 'stop_recording']):
+                self.context.recording_file.write(line + '\n')
         return line
     
     def postcmd(self, stop, line):
         """(override) Called after any command dispatch is finished."""
+        #print("{} - postcmd".format(self.__class__.__name__))
+        if not stop:
+            self._playback_file_cmd()
         self.update_prompt()
         return stop
     
     def do_logging(self, arg):
-        """Toggle MQTT client callback logging on/off"""
-        self.context.logging_enabled = not self.context.logging_enabled
-        print("Turning MQTT client callback logging " + (self.context.logging_enabled and 'ON' or 'OFF'))
+        """Turn MQTT client callback logging on/off, e.g. logging on
+        If on/off is not specified, then toggle current setting."""
+        if arg:
+            self.context.logging_enabled = str2bool(arg, default=self.context.logging_enabled, msg='for logging')
+        else:
+            self.context.logging_enabled = not self.context.logging_enabled
+        #print("Turning MQTT client callback logging " + (self.context.logging_enabled and 'ON' or 'OFF'))
         self.update_prompt()
 
     def do_prompt_verbosity(self, arg):
@@ -439,21 +496,19 @@ class RootConsole(cmd.Cmd):
         if not self.context.recording_file:
             print("Not currently recording commands")
         else:
-            print("Command recording stopped. Closing file: {}".format(self.context.recording_file.name))
-            self._close_recording_file()
+            print("Command recording stopped")
+            self.context.close_recording_file()
             
     def do_playback(self, arg):
         """Play back commands from the given file, e.g. playback session1.cmd"""
         try:
-            with open(arg, 'r') as f:
-                self.cmdqueue.extend(f.read().splitlines())
+            self.context.playback_file = open(arg, 'r')
         except:
             print("Unexpected error:")
             traceback.print_exc()
 
     def do_exit(self, arg):
         """Exit the current console"""
-        self._close_recording_file()
         return True
 
     def do_quit(self, arg):
@@ -463,13 +518,6 @@ class RootConsole(cmd.Cmd):
     def do_EOF(self, arg):
         """For those systems supporting it, allows using Ctrl-D to exit the current console"""
         return self.do_exit(arg)
-
-    def _close_recording_file(self):
-        """Close the recording file, if currently open."""
-        if self.context.recording_file:
-            self.context.recording_file.close()
-            self.context.recording_file = None
-           
 
 
 class MainConsole(RootConsole):
@@ -503,8 +551,9 @@ class MainConsole(RootConsole):
         self.context.client_args.client_id = arg
 
     def do_clean_session(self, arg):
-        """Toggle the MQTT client clean_session value"""
-        self.context.client_args.clean_session = not self.context.client_args.clean_session
+        """Enable/disable the MQTT client clean_session setting, e.g. clean_session true
+        If true/false is not specified, then toggle current setting."""
+        self.context.client_args.clean_session = arg
 
     def do_protocol(self, arg):
         """Set the MQTT protocol version (blank arg sets back to default), e.g. protocol 3"""
@@ -702,6 +751,8 @@ if __name__ == '__main__':
     console = MainConsole(ctx)
     console.cmdloop()
     # cleanup:
+    ctx.close_recording_file()
+    ctx.close_playback_file()
     if ctx.mqttclient:
         ctx.mqttclient.disconnect()
         ctx.mqttclient.loop_stop()
