@@ -450,7 +450,7 @@ class RootConsole(cmd.Cmd):
     def preloop(self):
         """(override) Executed once when cmdloop() is called."""
         #print("{} - preloop".format(self.__class__.__name__))
-        self._playback_file_cmd()
+        self._playback_file_cmd()   # necessary when dispatching a "child" console
     
     def precmd(self, line):
         """(override) Called just before the command line 'line' is interpreted."""
@@ -749,6 +749,9 @@ class MessagingConsole(RootConsole):
 if __name__ == '__main__':
     ctx = ConsoleContext(client_args=ClientArgs(), connection_args=ConnectionArgs())
     console = MainConsole(ctx)
+    if len(sys.argv) > 1:
+        # optional command-line argument is treated as a playback file
+        console.cmdqueue.extend(["playback " + sys.argv[1]])
     console.cmdloop()
     # cleanup:
     ctx.close_recording_file()
