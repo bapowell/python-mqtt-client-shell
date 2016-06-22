@@ -538,7 +538,10 @@ class RootConsole(cmd.Cmd):
 
     def do_pacing(self, arg):
         """Set a delay (seconds) between commands, when playing back commands from a file, e.g. pacing 1.5"""
-        self.context.pacing = arg
+        if arg:
+            self.context.pacing = arg
+        else:
+            print("Current pacing value: {}".format(self.context.pacing))
 
     def do_exit(self, arg):
         """Exit the current console"""
