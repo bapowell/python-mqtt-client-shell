@@ -11,6 +11,7 @@ import random
 import getpass
 import shlex
 import binascii
+import time
 from collections import namedtuple
 import paho.mqtt.client as mqtt
 
@@ -39,6 +40,15 @@ def str2bool(s, default=None, msg=None):
             print("Invalid value{}; should be True/False, Yes/No, On/Off, Enable/Disable, or 1/0. Defaulting to {}.".
                   format((msg and ' (' + msg + ')' or ''), default))
     return b    
+
+
+def isfloat(value):
+    """Helper function to test if the given argument, e.g. a string, can be converted to a float."""
+    try:
+        float(value)
+        return True
+    except ValueError:
+        return False
 
 
 # MQTT client callback functions:
@@ -370,12 +380,14 @@ class ConsoleContext(object):
     def prompt_verbosity_levels_str(cls):
         return cls._prompt_verbosity_levels_str
 
-    def __init__(self, logging_enabled=True, recording_file=None, playback_file=None,
+    def __init__(self, logging_enabled=True, recording_file=None, playback_file=None, pacing=0,
                  prompt_verbosity=None, client_args=None, mqttclient=None, connection_args=None):
         """Initialize ConsoleContext with default or passed-in values."""
         self.logging_enabled = logging_enabled
         self.recording_file = recording_file
         self.playback_file = playback_file
+        self._default_pacing = 0
+        self.pacing = pacing
         self._default_prompt_verbosity = "H"
         self.prompt_verbosity = prompt_verbosity
         self.client_args = client_args
@@ -396,6 +408,19 @@ class ConsoleContext(object):
                 print("Invalid prompt_verbosity value; should be " + self.prompt_verbosity_levels_str())
             else: 
                 self._prompt_verbosity = value
+        
+    @property
+    def pacing(self):
+        return self._pacing
+    
+    @pacing.setter
+    def pacing(self, value):
+        if not value:
+            self._pacing = self._default_pacing
+        elif ((not isfloat(value)) or (float(value) < 0)):
+            print("Invalid pacing value; should be a non-negative floating point number.") 
+        else:
+            self._pacing = float(value)
         
     def close_recording_file(self):
         """Close the recording file, if currently open."""
@@ -427,8 +452,10 @@ class RootConsole(cmd.Cmd):
         Override this in child consoles."""
         p = "> "
         if self.context.prompt_verbosity in ("M", "H"):
-            p = "Logging: {}, Recording: {}\n> ".format(self.context.logging_enabled and 'on' or 'off',
-                                                        self.context.recording_file and self.context.recording_file.name or 'off')
+            p = "Logging: {}, Recording: {}, Pacing: {}\n> ".format(
+                    self.context.logging_enabled and 'on' or 'off',
+                    self.context.recording_file and self.context.recording_file.name or 'off',
+                    self.context.pacing)
             if self.context.prompt_verbosity == "H":
                 p = "\n" + p
         return p
@@ -442,6 +469,8 @@ class RootConsole(cmd.Cmd):
         if self.context.playback_file:
             playcmd = self.context.playback_file.readline().rstrip("\r\n")
             if playcmd:
+                if self.context.pacing:
+                    time.sleep(self.context.pacing)
                 print("--> Running command: '{}'\t({})".format(playcmd, self.__class__.__name__))
                 self.cmdqueue.extend([playcmd])
             else:
@@ -506,6 +535,10 @@ class RootConsole(cmd.Cmd):
         except:
             print("Unexpected error:")
             traceback.print_exc()
+
+    def do_pacing(self, arg):
+        """Set a delay (seconds) between commands, when playing back commands from a file, e.g. pacing 1.5"""
+        self.context.pacing = arg
 
     def do_exit(self, arg):
         """Exit the current console"""
@@ -601,10 +634,10 @@ class ConnectionConsole(RootConsole):
         elif self.context.prompt_verbosity in ("M", "L"):
             cs = self.context.client_args.clean_session
             if self.context.prompt_verbosity == "M":
-                p = "client_id={}, clean_session={}, {}, ".format(
+                p = "{}, client_id={}, clean_session={}, ".format(
+                    self.context.connection_args.host + ":" + str(self.context.connection_args.port),
                     self.context.client_args.client_id,
-                    cs or str(cs).upper(),
-                    self.context.connection_args.host + ":" + str(self.context.connection_args.port))
+                    cs or str(cs).upper())
             elif not cs:
                 p = "clean_session=" + str(cs).upper()
         return p + RootConsole.build_prompt(self)
@@ -695,10 +728,10 @@ class MessagingConsole(RootConsole):
         elif self.context.prompt_verbosity in ("M", "L"):
             cs = self.context.client_args.clean_session
             if self.context.prompt_verbosity == "M":
-                p = "CONNECTED, client_id={}, clean_session={}, {}, ".format(
+                p = "CONNECTED, {}, client_id={}, clean_session={}, ".format(
+                    self.context.connection_args.host + ":" + str(self.context.connection_args.port),
                     self.context.client_args.client_id,
-                    cs or str(cs).upper(),
-                    self.context.connection_args.host + ":" + str(self.context.connection_args.port))
+                    cs or str(cs).upper())
             else:
                 p = "CONNECTED" + ((not cs) and (",clean_session=" + str(cs).upper()) or "")
         return p + RootConsole.build_prompt(self)
