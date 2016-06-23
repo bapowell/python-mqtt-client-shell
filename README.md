@@ -24,7 +24,7 @@ Other than Python itself, the only other dependency is the [Paho Python](http://
 ### Running
 
 ```
-python  mqtt_client_shell.py  [optional playback file]
+python mqtt_client_shell.py [optional playback file]
 ```
 
 ## Usage
@@ -38,10 +38,10 @@ python  mqtt_client_shell.py  [optional playback file]
 
 ## Tested Environments
 
-* Ubuntu 14.04 - Python 2.7 and 3.4 (verify versions)
-* ?? Ubuntu 16.04 - Python 2.7 and 3.4
+* Ubuntu 14.04 LTS - Python 2.7 and 3.4
+* Ubuntu 16.04 LTS - Python 2.7 and 3.5
 * Red Hat Enterprise Linux 7 - Python 2.7
-* Raspberry Pi - Raspbian - Python 2.7 and 3.4 (verify versions)
+* Raspberry Pi - Raspbian - Python 2.7 and 3.4
 * Windows - Python 2.7 and 3.4
 
 ## Requests/Issues/Bugs
