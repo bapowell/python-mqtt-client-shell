@@ -235,13 +235,21 @@ class MessagePublisher(object):
                 print('For payload, reading from: ' + url)
                 r = urlreq.urlopen(url)
                 url_payload = r.read()
-                print('Payload length is: ' + str(len(url_payload)))
+                contenttype = None
+                charset = None
                 if sys.version_info[0] == 2:
+                    contenttype = r.headers.getheaders('content-type')
                     charset = r.headers.getparam('charset')
                 else:
+                    contenttype = r.headers.get_content_type()
                     charset = r.headers.get_content_charset()
-                print('Payload charset is: ' + str(charset))
-                payload = url_payload.decode(charset or 'ascii')
+                print('Payload: length={}, content-type={}, charset={}'.format(len(url_payload), contenttype, charset))
+                try:
+                    payload = url_payload.decode(charset or 'ascii')
+                except UnicodeDecodeError as e:
+                    print('Problem trying to decode payload:\n' + str(e))
+                    print('Converting to bytearray')
+                    payload = bytearray(url_payload)
             except URLError as e:
                 print('Problem trying to read from the URL:\n' + str(e))
                 print('Reverting payload back to: ' + payload)
@@ -271,7 +279,7 @@ class MessagePublisher(object):
         elif not payload: 
             print("Payload must be specified")
         else:
-            if "{seq}" in payload:
+            if (not isinstance(payload, bytearray)) and ("{seq}" in payload):
                 payload = payload.format(seq=self._msg_seq)
             (result, msg_id) = self._mqttclient.publish(topic=topic, payload=payload, qos=qos, retain=retain)
             print("...msg_id={!r}, result={} ({})".format(msg_id, result, mqtt.error_string(result)))
@@ -517,8 +525,11 @@ class RootConsole(cmd.Cmd):
     def do_record(self, arg):
         """Start recording commands to the given file, e.g. record session1.cmd
         If the file exists, commands will be appended to it."""
-        self.context.recording_file = open(arg, 'a')
-        print("Commands will now be recorded to file: {}.".format(arg))
+        if arg:
+            self.context.recording_file = open(arg, 'a')
+            print("Commands will now be recorded to file: {}.".format(arg))
+        else:
+            print("Must specify a file to record to")
 
     def do_stop_recording(self, arg):
         """Stop recording commands to the given file"""
