@@ -55,33 +55,27 @@ def isfloat(value):
 # The userdata object is set to a ConsoleContext instance. 
 # -----------------------------------------------------------------------------
 def on_connect(mqttclient, userdata, flags, rc):
-    if userdata.logging_enabled:
-        print("on_connect(): result code = {} ({})".format(rc, mqtt.connack_string(rc)))
+    userdata.log("on_connect(): result code = {} ({})".format(rc, mqtt.connack_string(rc)))
 
 def on_disconnect(mqttclient, userdata, rc):
-    if userdata.logging_enabled:
-        print("on_disconnect(): result code = {}".format(rc))
+    userdata.log("on_disconnect(): result code = {}".format(rc))
 
 def on_message(mqttclient, userdata, msg):
-    print("on_message(): message received: Topic: {}, QoS: {}, Payload Length: {}".format(msg.topic, msg.qos, len(msg.payload)))
-    print("                                Payload (str): {}".format(str(msg.payload)))
-    print("                                Payload (hex): {}".format(binascii.hexlify(msg.payload)))
+    userdata.log("on_message(): message received: Topic: {}, QoS: {}, Payload Length: {}".format(msg.topic, msg.qos, len(msg.payload)), force=True)
+    userdata.log("                                Payload (str): {}".format(str(msg.payload)), force=True)
+    userdata.log("                                Payload (hex): {}".format(binascii.hexlify(msg.payload)), force=True)
 
 def on_publish(mqttclient, userdata, mid):
-    if userdata.logging_enabled:
-        print("on_publish(): message published: msg id = {}".format(mid))
+    userdata.log("on_publish(): message published: msg id = {}".format(mid))
 
 def on_subscribe(mqttclient, userdata, mid, granted_qos):
-    if userdata.logging_enabled:
-        print("on_subscribe(): subscribed: msg id = {}, granted_qos = {}".format(mid, granted_qos))
+    userdata.log("on_subscribe(): subscribed: msg id = {}, granted_qos = {}".format(mid, granted_qos))
 
 def on_unsubscribe(mqttclient, userdata, mid):
-    if userdata.logging_enabled:
-        print("on_unsubscribe(): unsubscribed: msg id = {}".format(mid))
+    userdata.log("on_unsubscribe(): unsubscribed: msg id = {}".format(mid))
 
 def on_log(mqttclient, userdata, level, string):
-    if userdata.logging_enabled:
-        print("on_log(): level={} - {}".format(level, string))
+    userdata.log("on_log(): level={} - {}".format(level, string))
 # -----------------------------------------------------------------------------
 
 
@@ -91,7 +85,8 @@ Subscription = namedtuple('Subscription', ['topic', 'qos'])
 
 
 class ClientArgs(object):
-    """Container to manage arguments for an mqtt.Client object."""
+    """Container to manage arguments for an mqtt.Client object.
+    """
     
     mqtt_protocol_versions = {mqtt.MQTTv31:"MQTTv3.1", mqtt.MQTTv311:"MQTTv3.1.1"}
     mqtt_protocol_versions_str = ", ".join("{} for {}".format(k, v) for (k, v) in mqtt_protocol_versions.items())
@@ -159,7 +154,8 @@ class ClientArgs(object):
 
 
 class ConnectionArgs(object):
-    """Container to manage arguments for an MQTT connection."""
+    """Container to manage arguments for an MQTT connection.
+    """
     
     def __init__(self, host="", port=None, keepalive=None, bind_address="", username="", password="", will=None):
         """Initialize ConnectionArgs with default or passed-in values."""
@@ -375,7 +371,9 @@ class SubscriptionHandler(object):
 
 
 class ConsoleContext(object):
-    """Container for sharing objects among consoles."""
+    """Container for sharing objects among consoles.
+    Also includes some utility methods related to the context objects.
+    """
 
     _prompt_verbosity_levels = {"N":"None", "L":"Low", "M":"Medium", "H":"High"}
     _prompt_verbosity_levels_str = ", ".join("{}={}".format(k, v) for (k, v) in _prompt_verbosity_levels.items())
@@ -388,14 +386,21 @@ class ConsoleContext(object):
     def prompt_verbosity_levels_str(cls):
         return cls._prompt_verbosity_levels_str
 
-    def __init__(self, logging_enabled=True, recording_file=None, playback_file=None, pacing=0,
+    def __init__(self,
+                 logging_enabled=True, logging_indent=30, 
+                 recording_file=None, playback_file=None, pacing=0,
                  prompt_verbosity=None, client_args=None, mqttclient=None, connection_args=None):
         """Initialize ConsoleContext with default or passed-in values."""
         self.logging_enabled = logging_enabled
+        self._default_logging_indent = 30
+        self.logging_indent = logging_indent
+        self._logging_indent_str = " " * logging_indent
+        
         self.recording_file = recording_file
         self.playback_file = playback_file
         self._default_pacing = 0
         self.pacing = pacing
+        
         self._default_prompt_verbosity = "H"
         self.prompt_verbosity = prompt_verbosity
         self.client_args = client_args
@@ -418,6 +423,25 @@ class ConsoleContext(object):
                 self._prompt_verbosity = value
         
     @property
+    def logging_indent(self):
+        return self._logging_indent
+    
+    @logging_indent.setter
+    def logging_indent(self, value):
+        if not value:
+            self._logging_indent = self._default_logging_indent
+        elif not str(value).isdigit():
+            print("Invalid logging_indent value; should be a non-negative integer.") 
+        else:
+            self._logging_indent = int(value)
+
+        self._logging_indent_str = " " * self._logging_indent
+    
+    def log(self, s, force=False):
+        if self.logging_enabled or force:
+            print(self._logging_indent_str + s)
+    
+    @property
     def pacing(self):
         return self._pacing
     
@@ -432,7 +456,6 @@ class ConsoleContext(object):
         
     def close_recording_file(self):
         """Close the recording file, if currently open."""
-        #print("Check closing recording file")
         if self.recording_file:
             print("Closing recording file: {}".format(self.recording_file.name))
             self.recording_file.close()
@@ -440,7 +463,6 @@ class ConsoleContext(object):
            
     def close_playback_file(self):
         """Close the playback file, if currently open."""
-        #print("Check closing playback file")
         if self.playback_file:
             print("Closing playback file: {}".format(self.playback_file.name))
             self.playback_file.close()
@@ -448,7 +470,8 @@ class ConsoleContext(object):
 
 
 class RootConsole(cmd.Cmd):
-    """Parent of other Console (Cmd) objects."""
+    """Parent of other Console (Cmd) objects.
+    """
     
     def __init__(self, context):
         """Initialize, with a context."""
@@ -461,7 +484,7 @@ class RootConsole(cmd.Cmd):
         p = "> "
         if self.context.prompt_verbosity in ("M", "H"):
             p = "Logging: {}, Recording: {}, Pacing: {}\n> ".format(
-                    self.context.logging_enabled and 'on' or 'off',
+                    self.context.logging_enabled and 'on (indent={})'.format(self.context.logging_indent) or 'off',
                     self.context.recording_file and self.context.recording_file.name or 'off',
                     self.context.pacing)
             if self.context.prompt_verbosity == "H":
@@ -511,8 +534,14 @@ class RootConsole(cmd.Cmd):
             self.context.logging_enabled = str2bool(arg, default=self.context.logging_enabled, msg='for logging')
         else:
             self.context.logging_enabled = not self.context.logging_enabled
-        #print("Turning MQTT client callback logging " + (self.context.logging_enabled and 'ON' or 'OFF'))
         self.update_prompt()
+
+    def do_logging_indent(self, arg):
+        """Set indentation (# spaces) for the MQTT client callback log messages, e.g. logging_indent 15"""
+        if arg:
+            self.context.logging_indent = arg
+        else:
+            print("Current logging_indent value: {}".format(self.context.logging_indent))
 
     def do_prompt_verbosity(self, arg):
         """Set the verbosity level of the console prompt"""
