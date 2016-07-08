@@ -6,15 +6,15 @@ Written in Python *(works with Python 2 and 3)*, and using the [Eclipse Paho](ht
 
 The purpose of this utility is to provide a text console-based, interactive shell for exercising various tasks associated with MQTT client communications, including connecting to an MQTT server, subscribing to topics, and publishing messages.
 
-Other MQTT client tools exist, such as [mqtt-spy](https://github.com/kamilfb/mqtt-spy), but they tend to be GUI-based. This project arose from the need for a quick and easy way to test MQTT communications from the command line, e.g. SSH session.
+Other MQTT client tools exist, such as [mqtt-spy](https://github.com/kamilfb/mqtt-spy), but they tend to be GUI-based. This project arose from the need for a quick and easy way to test MQTT communications from the command line, e.g. terminal/SSH session.
 
-## Installation
+## Getting Started
 
 ### Dependencies
 
 Other than Python itself, the only other dependency is the [Paho Python](http://www.eclipse.org/paho/clients/python/) client library.
 
-### Install
+### Installation
 
 * Copy the `mqtt_client_shell.py` file to your desired folder location.
 
