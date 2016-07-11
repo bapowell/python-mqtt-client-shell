@@ -231,21 +231,26 @@ class MessagePublisher(object):
                 print('For payload, reading from: ' + url)
                 r = urlreq.urlopen(url)
                 url_payload = r.read()
-                contenttype = None
-                charset = None
-                if sys.version_info[0] == 2:
-                    contenttype = r.headers.getheaders('content-type')
-                    charset = r.headers.getparam('charset')
+                
+                if len(url_payload) == 0:
+                    print('Empty payload from ' + url)
+                    payload = None
                 else:
-                    contenttype = r.headers.get_content_type()
-                    charset = r.headers.get_content_charset()
-                print('Payload: length={}, content-type={}, charset={}'.format(len(url_payload), contenttype, charset))
-                try:
-                    payload = url_payload.decode(charset or 'ascii')
-                except UnicodeDecodeError as e:
-                    print('Problem trying to decode payload:\n' + str(e))
-                    print('Converting to bytearray')
-                    payload = bytearray(url_payload)
+                    contenttype = None
+                    charset = None
+                    if sys.version_info[0] == 2:
+                        contenttype = r.headers.getheaders('content-type')
+                        charset = r.headers.getparam('charset')
+                    else:
+                        contenttype = r.headers.get_content_type()
+                        charset = r.headers.get_content_charset()
+                    print('Payload: length={}, content-type={}, charset={}'.format(len(url_payload), contenttype, charset))
+                    try:
+                        payload = url_payload.decode(charset or 'ascii')
+                    except UnicodeDecodeError as e:
+                        print('Problem trying to decode payload:\n' + str(e))
+                        print('Converting to bytearray')
+                        payload = bytearray(url_payload)
             except URLError as e:
                 print('Problem trying to read from the URL:\n' + str(e))
                 print('Reverting payload back to: ' + payload)
@@ -272,11 +277,13 @@ class MessagePublisher(object):
         Substitute in the _msg_seq if the payload contains {seq}."""
         if not topic:
             print("Topic must be specified")
-        elif not payload: 
-            print("Payload must be specified")
         else:
-            if (not isinstance(payload, bytearray)) and ("{seq}" in payload):
+            if not payload: 
+                print("Payload not specified, so a zero-length message will be published.")
+                payload = None
+            elif (not isinstance(payload, bytearray)) and ("{seq}" in payload):
                 payload = payload.format(seq=self._msg_seq)
+                
             (result, msg_id) = self._mqttclient.publish(topic=topic, payload=payload, qos=qos, retain=retain)
             print("...msg_id={!r}, result={} ({})".format(msg_id, result, mqtt.error_string(result)))
             if result == mqtt.MQTT_ERR_SUCCESS:
@@ -290,8 +297,9 @@ class MessagePublisher(object):
     def parse_publish(self, line):
         """Publish a message, after parsing the parameters from the given string, which
         should be formatted as follows:
-            topic  payload  [qos  [retain]]
+            topic  [payload  [qos  [retain]]]
         topic and payload can be quoted (e.g. contain spaces)
+        if payload is not given (or is empty, e.g. ""), then a zero-length message will be published 
         qos (0, 1, or 2) is optional; defaults to 0
         retain (true/false or yes/no) is optional; defaults to false"""
         msg = self.parse_msg_input(line)
@@ -785,11 +793,12 @@ class MessagingConsole(RootConsole):
         return True
 
     def do_publish(self, arg):
-        """Publish a message, e.g. publish topic payload [qos [retain]]
+        """Publish a message, e.g. publish topic [payload [qos [retain]]]
         topic can be quoted (e.g. contains spaces)
-        payload can be quoted (e.g. contains spaces);
-            if contains "{seq}", then published message sequence# will be substituted;
+        payload can be quoted (e.g. contains spaces)
+            if contains "{seq}", then a published message sequence# will be substituted;
             if starts with "from-url:", then contents of the specified resource will be used, e.g. from-url:file:///home/fred/test.txt
+            if payload is not given (or is empty, e.g. ""), then a zero-length message will be published 
         qos (0, 1, or 2) is optional; defaults to 0
         retain (true/false or yes/no) is optional; defaults to false"""
         try:
