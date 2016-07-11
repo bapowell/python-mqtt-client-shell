@@ -29,7 +29,85 @@ python mqtt_client_shell.py [optional playback file]
 
 ## Usage
 
-(to-do)
+### Basics
+
+The program implements a set of nested *sub* shells:
+
+1. Upon startup the initial shell is the **Main** (i.e. Client) shell, where changes can be made to MQTT client parameters, e.g. client_id, protocol version, etc.
+
+2. From the Main shell, the *connection* command takes you to the **Connection** shell, which handles the setting of MQTT connection parameters, e.g. host, port, username, etc.
+
+3. From the Connection shell, the *connect* command initiates a connection to the MQTT server, and then takes you to the **Messaging** shell, for performing pub/sub messaging via the active MQTT connection.
+
+### Sample Session
+
+Below is a sample session showing the basics: connecting to an MQTT server, subscribing to all topics (#), and publishing a message. To clarify, once the program was started, the following commands, entered in succession, produced the sample session:
+
+logging off  
+connection  
+connect  
+subscribe #  
+publish test/a "hi, world"  
+exit  
+exit  
+exit
+
+```
+$ python mqtt_client_shell.py
+
+Welcome to the MQTT client shell.
+Type help or ? to list commands.
+Pressing <Enter> on an empty line will repeat the last command.
+
+Client args: client_id=paho-9241-mypc, clean_session=True, protocol=4 (MQTTv3.1.1)
+Logging: on (indent=30), Recording: off, Pacing: 0
+> logging off
+
+Client args: client_id=paho-9241-mypc, clean_session=True, protocol=4 (MQTTv3.1.1)
+Logging: off, Recording: off, Pacing: 0
+> connection
+
+Connection args: host=localhost, port=1883, keepalive=60, bind_address=, username=, password=, will=None
+Client args: client_id=paho-9241-mypc, clean_session=True, protocol=4 (MQTTv3.1.1)
+Logging: off, Recording: off, Pacing: 0
+> connect
+
+***CONNECTED***
+Subscriptions:
+Connection args: host=localhost, port=1883, keepalive=60, bind_address=, username=, password=, will=None
+Client args: client_id=paho-9241-mypc, clean_session=True, protocol=4 (MQTTv3.1.1)
+Logging: off, Recording: off, Pacing: 0
+> subscribe #
+...msg_id=1, result=0 (No error.)
+
+***CONNECTED***
+Subscriptions: (topic=#,qos=0)
+Connection args: host=localhost, port=1883, keepalive=60, bind_address=, username=, password=, will=None
+Client args: client_id=paho-9241-mypc, clean_session=True, protocol=4 (MQTTv3.1.1)
+Logging: off, Recording: off, Pacing: 0
+> publish test/a "hi, world"
+...msg_id=2, result=0 (No error.)
+                              on_message(): message received: Topic: test/a, QoS: 0, Payload Length: 9
+                                                              Payload (str): b'hi, world'
+                                                              Payload (hex): b'68692c20776f726c64'
+
+***CONNECTED***
+Subscriptions: (topic=#,qos=0)
+Connection args: host=localhost, port=1883, keepalive=60, bind_address=, username=, password=, will=None
+Client args: client_id=paho-9241-mypc, clean_session=True, protocol=4 (MQTTv3.1.1)
+Logging: off, Recording: off, Pacing: 0
+> exit
+
+Connection args: host=localhost, port=1883, keepalive=60, bind_address=, username=, password=, will=None
+Client args: client_id=paho-9241-mypc, clean_session=True, protocol=4 (MQTTv3.1.1)
+Logging: off, Recording: off, Pacing: 0
+> exit
+
+Client args: client_id=paho-9241-mypc, clean_session=True, protocol=4 (MQTTv3.1.1)
+Logging: off, Recording: off, Pacing: 0
+> exit
+$
+```
 
 ## Built With
 
