@@ -645,7 +645,7 @@ class MainConsole(RootConsole):
 
     def help_protocol(self):
         print("Set the MQTT protocol version (" + ClientArgs.mqtt_protocol_versions_str + ")" +
-              " (blank arg sets back to default), e.g. protocol " + str(ClientArgs.mqtt_protocol_versions.keys()[0]))
+              " (blank arg sets back to default), e.g. protocol " + str(list(ClientArgs.mqtt_protocol_versions.keys())[0]))
 
     def do_connection(self, arg):
         """Go to the Connection console, after establishing an MQTT client (using the current MQTT client args)"""
