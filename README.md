@@ -39,6 +39,22 @@ The program implements a set of nested *sub* shells:
 
 3. From the Connection shell, the *connect* command initiates a connection to the MQTT server, and then takes you to the **Messaging** shell, for performing pub/sub messaging via the active MQTT connection.
 
+#### Help
+
+Enter ```help``` or ```?``` to show a list of commands that are valid at that point.
+
+To get help for a particular command, enter ```help``` (or ```?```) followed by the command, e.g. ```help publish```.
+
+#### Command Completion and History
+
+If your system supports it (Windows doesn't support TAB completion), then, when entering commands, the TAB key will let the shell try to complete the command or propose alternatives.
+
+Additionally, the up/down arrow keys can be used to cycle through the command history.
+
+#### Exit
+
+Typing ```exit``` or ```quit``` (or pressing Ctrl-D, for those systems supporting it) will exit the current shell. If at the Main shell, then this will quit the program.
+
 ### Sample Session
 
 Below is a sample session showing the basics: connecting to an MQTT server, subscribing to all topics (#), and publishing a message. To clarify, once the program was started, the following commands, entered in succession, produced the sample session:
@@ -108,6 +124,20 @@ Logging: off, Recording: off, Pacing: 0
 > exit
 $
 ```
+
+## Commands
+
+### Global Commands
+
+#### logging
+* Turn on/off the display of MQTT client callback messages.
+* Additionally, the ```logging_indent``` command controls the indentation for the callback messages.
+  * This is helpful to distinguish callback messages from the interactive shell input/output.
+
+#### prompt_verbosity
+* Set the amount of detail displayed in the shell prompt: 'N'one, 'L'ow, 'M'edium, 'H'igh.
+* A high verbosity will show essentially all current settings.
+
 
 ## Built With
 
