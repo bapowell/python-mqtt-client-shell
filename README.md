@@ -129,14 +129,33 @@ $
 
 ### Global Commands
 
-#### logging
+These commands work in any of the (sub) shells.
+
+#### logging *[on | off]*
 * Turn on/off the display of MQTT client callback messages.
+  * If on/off argument is not specified, then setting is toggled.
+  * Note: This doesn't affect the on_message callback, which always logs when a message is received.
 * Additionally, the ```logging_indent``` command controls the indentation for the callback messages.
   * This is helpful to distinguish callback messages from the interactive shell input/output.
 
-#### prompt_verbosity
+#### prompt_verbosity *[N | L | M | H]*
 * Set the amount of detail displayed in the shell prompt: 'N'one, 'L'ow, 'M'edium, 'H'igh.
+  * If argument is not specified, then setting is reset to default ('H'igh).
 * A high verbosity will show essentially all current settings.
+
+#### record *file*
+* Start recording commands to the given file.
+  * If the file exists, then commands will be appended to it.
+
+#### stop_recording
+* Stop recording commands, if currently recording commands to a file.
+
+#### playback *file*
+* Play back commands from the given file.
+
+#### pacing *delay*
+* Set a delay between commands, when playing back commands from a file.
+  * A fractional delay value is supported, e.g. 1.5 (seconds).
 
 
 ## Built With
