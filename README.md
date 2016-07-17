@@ -31,7 +31,7 @@ python mqtt_client_shell.py [optional playback file]
 
 ### Basics
 
-The program implements a set of nested *sub* shells:
+The program implements a set of nested *sub* shells (i.e. consoles):
 
 1. Upon startup the initial shell is the **Main** (i.e. Client) shell, where changes can be made to MQTT client parameters, e.g. client_id, protocol version, etc.
 
@@ -129,33 +129,102 @@ $
 
 ### Global Commands
 
-These commands work in any of the (sub) shells.
+These commands work in any of the (sub) shells, i.e. consoles.
 
 #### logging *[on | off]*
-* Turn on/off the display of MQTT client callback messages.
-  * If on/off argument is not specified, then setting is toggled.
-  * Note: This doesn't affect the on_message callback, which always logs when a message is received.
-* Additionally, the ```logging_indent``` command controls the indentation for the callback messages.
-  * This is helpful to distinguish callback messages from the interactive shell input/output.
+Turn on/off the display of MQTT client callback messages.
+* If on/off argument is not specified, then the setting is toggled.
+* Note that this doesn't affect the on_message callback, which always logs when a message is received.
+* See ```logging_indent``` command.
+
+#### logging_indent *#spaces*
+Control the indentation for the callback messages. This is helpful to distinguish callback messages from the interactive shell input/output.
 
 #### prompt_verbosity *[N | L | M | H]*
-* Set the amount of detail displayed in the shell prompt: 'N'one, 'L'ow, 'M'edium, 'H'igh.
-  * If argument is not specified, then setting is reset to default ('H'igh).
+Set the amount of detail displayed in the shell prompt: 'N'one, 'L'ow, 'M'edium, 'H'igh.
+* If argument is not specified, then setting is reset to default ('H'igh).
 * A high verbosity will show essentially all current settings.
 
 #### record *file*
-* Start recording commands to the given file.
-  * If the file exists, then commands will be appended to it.
+Start recording commands to the given file.
+* If the file exists, then commands will be appended to it.
 
 #### stop_recording
-* Stop recording commands, if currently recording commands to a file.
+Stop recording commands, if currently recording commands to a file.
 
 #### playback *file*
-* Play back commands from the given file.
+Play back commands from the given file.
+* When executing the MQTT shell, a playback file may be specified on the command line, e.g. ```python mqtt_client_shell.py connectsubscribe.cmd```, in which case commands are played back from the given file immediately upon execution.
+* See ```pacing``` command.
 
 #### pacing *delay*
-* Set a delay between commands, when playing back commands from a file.
-  * A fractional delay value is supported, e.g. 1.5 (seconds).
+Set a delay between commands, when playing back commands from a file.
+* A fractional delay value is supported, e.g. 1.5 (seconds).
+
+#### Side note: Scripting
+
+Interestingly, on Unix-like systems that support named pipes, i.e. FIFO, the playback command functionality offers a way to do rudimentary scripting with the MQTT shell. For instance:
+
+Create a FIFO file:
+```bash
+$ mkfifo test1.fifo
+```
+Create a shell script, e.g. *publoop.sh*, with the following content:
+```bash
+#!/bin/bash
+F=test1.fifo
+SECS=0
+echo 'pacing 1.0' > $F
+echo 'connection' > $F
+echo 'connect' > $F
+echo 'subscribe #' > $F
+echo 'logging off' > $F
+echo 'publish test hi' > $F
+COUNTER=0
+while [ $COUNTER -lt 5 ]; do
+    echo publish test $COUNTER > $F
+    sleep $SECS
+    let COUNTER=COUNTER+1
+done
+echo 'exit' > $F
+echo 'exit' > $F
+echo 'exit' > $F
+```
+Run the MQTT shell, specifying the FIFO as the playback file:
+```bash
+$ python mqtt_client_shell.py test1.fifo
+```
+Finally, in another terminal session, execute the *publoop.sh* script:
+```bash
+$ sh ./publoop.sh
+```
+Assuming there's an MQTT server running on localhost, running this will connect to that server, subscribe to all messages, publish a set of test messages, and then cause the MQTT shell to exit back to the command line.
+
+### Main Console Commands
+
+Upon program startup, this is the shell, i.e. console, that is active. It's purpose is to set the MQTT client parameters, before establishing a connection. In addition to the global commands listed above, the following commands are enabled.
+
+#### client_id *[id]*
+Set the MQTT client ID.
+* If id argument is not specified, then the default id that was established on program startup is used.
+
+#### clean_session *[true | false]*
+Enable/disable the MQTT *clean session* setting (default: true)
+* If true/false argument is not specified, then the setting is toggled.
+
+#### protocol *[version]*
+Set the version of the MQTT protocol to be used.
+* Use help, ```help protocol```, to see the versions available.
+* If version argument is not specified, then the version is set back to default.
+
+#### connection
+Establish an MQTT client, using the current client settings, and go to the Connection console.
+
+### Connection Console Commands
+
+
+### Messaging Console Commands
+
 
 
 ## Built With
