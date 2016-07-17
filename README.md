@@ -158,12 +158,12 @@ Play back commands from the given file.
 * See ```pacing``` command.
 
 #### pacing *delay*
-Set a delay between commands, when playing back commands from a file.
+Set a delay, in seconds, between commands, when playing back commands from a file.
 * A fractional delay value is supported, e.g. 1.5 (seconds).
 
 #### Side note: Scripting
 
-Interestingly, on Unix-like systems that support named pipes, i.e. FIFO, the playback command functionality offers a way to do rudimentary scripting with the MQTT shell. For instance:
+Interestingly, on Unix-like systems that support named pipes, i.e. FIFO, the playback functionality offers a way to do rudimentary scripting with the MQTT shell. For instance:
 
 Create a FIFO file:
 ```bash
@@ -198,11 +198,12 @@ Finally, in another terminal session, execute the *publoop.sh* script:
 ```bash
 $ sh ./publoop.sh
 ```
-Assuming there's an MQTT server running on localhost, running this will connect to that server, subscribe to all messages, publish a set of test messages, and then cause the MQTT shell to exit back to the command line.
+Assuming there's an MQTT server running on localhost, executing this will connect to that server, subscribe to all messages, publish a set of test messages, and then cause the MQTT shell to exit back to the command line.
+
 
 ### Main Console Commands
 
-Upon program startup, this is the shell, i.e. console, that is active. It's purpose is to set the MQTT client parameters, before establishing a connection. In addition to the global commands listed above, the following commands are enabled.
+Upon program startup, this is the shell, i.e. console, that is active. It's purpose is to set the MQTT client parameters before establishing a connection. In addition to the global commands listed above, the following commands are enabled.
 
 #### client_id *[id]*
 Set the MQTT client ID.
@@ -218,13 +219,80 @@ Set the version of the MQTT protocol to be used.
 * If version argument is not specified, then the version is set back to default.
 
 #### connection
-Establish an MQTT client, using the current client settings, and go to the Connection console.
+Establish an MQTT client, using the current client parameter settings, and go to the Connection console.
+
 
 ### Connection Console Commands
+
+Coming from the Main console, where an MQTT *client* was created, this console is used to set MQTT connection parameters.
+
+#### host *[server]*
+Set the hostname or IP address of the MQTT server.
+* If server argument is not specified, then the default (locahost) is set.
+
+#### port *[port#]*
+For the MQTT server, set the network port to connect to.
+* If port# argument is not specified, then the default (1883) is set.
+
+#### keepalive *[secs]*
+Set the keep-alive time, in seconds.
+* If argument is not specified, then the default (60) is set.
+
+#### bind_address *[addr]*
+Set the IP address of a local network interface to bind the client to, assuming multiple interfaces exist. Defaults to blank.
+
+#### username *[usr]*
+Set the username for MQTT server authentication. Defaults to blank, in which case username/password authentication is not used.
+
+#### password *[pwd]*
+Prompt for the password for MQTT server authentication.
+
+#### will *topic [payload [qos [retain]]]*
+Set a *Will*, a.k.a. Last Will and Testament.
+* topic and payload can be quoted (e.g. if they contain spaces).
+* If payload is not specified (or is empty, e.g. ""), then a zero-length message will be published.
+* qos (0, 1, or 2) is optional; defaults to 0.
+* retain (true|false, or yes|no) is optional; defaults to false.
+
+#### connect
+Try connecting to the MQTT server, using the current client and connection parameters. If connection is successful, then go to the Messaaging console.
 
 
 ### Messaging Console Commands
 
+With an active MQTT connection this console is used for performing publish/subscribe messaging.
+
+#### disconnect
+Disconnect from the MQTT server, and go back to the Connection console.
+* Note that existing this console via ```exit``` or ```quit``` (or Ctrl-D) will also disconnect.
+
+#### publish *topic [payload [qos [retain]]]*
+Publish a message.
+* topic and payload can be quoted (e.g. if they contain spaces).
+* payload:
+  * If it contains "{seq}", then a published message sequence# will be substituted.
+  * If it starts with "from-url:", then the contents of the specified resource will be used, e.g.
+    * from-url:file:///home/fred/test.txt
+    * from-url:http://google.com
+  * If it's not specified (or is empty, e.g. ""), then a zero-length message will be published.
+* qos (0, 1, or 2) is optional; defaults to 0.
+* retain (true|false, or yes|no) is optional; defaults to false.
+
+#### subscribe *topic [qos]*
+Subscribe to a topic.
+* topic can be quoted (e.g. if it contains spaces).
+* qos (0, 1, or 2) is optional; defaults to 0.
+* Note that when prompt_verbosity is High, current subscriptions will be listed in the prompt.
+
+#### unsubscribe *topic*
+Unsubscribe from a topic.
+* topic can be quoted (e.g. if it contains spaces).
+
+#### unsubscribe_all
+Unsubscribe from all active topic subscriptions.
+
+#### list_subscriptions
+List the currently active topic subscriptions.
 
 
 ## Built With
