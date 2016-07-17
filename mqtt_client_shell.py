@@ -720,7 +720,8 @@ class ConnectionConsole(RootConsole):
     def do_will(self, arg):
         """Set a Will (a.k.a. Last Will and Testament), e.g. will topic [payload [qos [retain]]]
         topic can be quoted (e.g. contains spaces)
-        payload can be quoted (e.g. contains spaces);
+        payload can be quoted (e.g. contains spaces)
+            if payload is not given (or is empty, e.g. ""), then a zero-length message will be published 
         qos (0, 1, or 2) is optional; defaults to 0
         retain (true/false or yes/no) is optional; defaults to false"""
         self.context.connection_args.will = MessagePublisher.parse_msg_input(arg)
