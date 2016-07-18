@@ -91,13 +91,16 @@ class ClientArgs(object):
     mqtt_protocol_versions = {mqtt.MQTTv31:"MQTTv3.1", mqtt.MQTTv311:"MQTTv3.1.1"}
     mqtt_protocol_versions_str = ", ".join("{} for {}".format(k, v) for (k, v) in mqtt_protocol_versions.items())
     
-    def __init__(self, client_id="", clean_session=True, protocol=None):
+    mqtt_transports = ('tcp', 'websockets')
+    
+    def __init__(self, client_id="", clean_session=True, protocol=None, transport="tcp"):
         """Initialize ClientArgs with default or passed-in values."""
         self._default_client_id = ("paho-" + str(random.randrange(1000, 10000)) + "-" + socket.gethostname())[:23]
         self.client_id = client_id
         self.clean_session = clean_session
         self._default_protocol = mqtt.MQTTv311
         self.protocol = protocol
+        self.transport = transport
 
     @property
     def client_id(self):
@@ -145,12 +148,26 @@ class ClientArgs(object):
             else:
                 print("Invalid protocol value; should be " + type(self).mqtt_protocol_versions_str) 
         
+    @property
+    def transport(self):
+        return self._transport
+    
+    @transport.setter
+    def transport(self, value):
+        if value not in type(self).mqtt_transports:
+            print("Valid options for transport are: " + ", ".join(type(self).mqtt_transports))
+        else:
+            self._transport = value
+            if value == 'websockets':
+                print("NOTE: For websockets you must use Paho Python client v1.2 or greater.")
+        
     def __str__(self):
-        return "Client args: client_id={}, clean_session={}, protocol={} ({})".format(
+        return "Client args: client_id={}, clean_session={}, protocol={} ({}), transport={}".format(
                self.client_id,
                self.clean_session or ("***" + str(self.clean_session).upper() + "***"), 
                self.protocol, 
-               type(self).mqtt_protocol_versions[self.protocol])
+               type(self).mqtt_protocol_versions[self.protocol],
+               self.transport)
 
 
 class ConnectionArgs(object):
@@ -647,10 +664,30 @@ class MainConsole(RootConsole):
         print("Set the MQTT protocol version (" + ClientArgs.mqtt_protocol_versions_str + ")" +
               " (blank arg sets back to default), e.g. protocol " + str(list(ClientArgs.mqtt_protocol_versions.keys())[0]))
 
+    def do_transport(self, arg):
+        """Set the MQTT transport, e.g. transport tcp"""
+        self.context.client_args.transport = arg
+
+    def help_transport(self):
+        print("Set the MQTT transport (" + ", ".join(ClientArgs.mqtt_transports) + ")" +
+              ", e.g. transport " + ClientArgs.mqtt_transports[0])
+
     def do_connection(self, arg):
         """Go to the Connection console, after establishing an MQTT client (using the current MQTT client args)"""
         ca = self.context.client_args
-        self.context.mqttclient = mqtt.Client(client_id=ca.client_id, clean_session=ca.clean_session, userdata=self.context, protocol=ca.protocol)
+        if ca.transport == 'tcp':
+            # valid constructor for paho < v1.2
+            self.context.mqttclient = mqtt.Client(client_id=ca.client_id,
+                                                  clean_session=ca.clean_session,
+                                                  userdata=self.context,
+                                                  protocol=ca.protocol)
+        else:
+            # valid constructor for paho >= v1.2
+            self.context.mqttclient = mqtt.Client(client_id=ca.client_id,
+                                                  clean_session=ca.clean_session,
+                                                  userdata=self.context,
+                                                  protocol=ca.protocol,
+                                                  transport=ca.transport)
         # Set the client callbacks:
         self.context.mqttclient.on_connect = on_connect
         self.context.mqttclient.on_disconnect = on_disconnect

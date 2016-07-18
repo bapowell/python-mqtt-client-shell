@@ -218,6 +218,10 @@ Set the version of the MQTT protocol to be used.
 * Use help, ```help protocol```, to see the versions available.
 * If version argument is not specified, then the version is set back to default.
 
+#### transport *tcp|websockets*
+Set the transport for the MQTT connection (default: tcp).
+* **Note**: For websockets you must use Paho Python client v1.2 or greater.
+
 #### connection
 Establish an MQTT client, using the current client parameter settings, and go to the Connection console.
 
