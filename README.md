@@ -245,18 +245,51 @@ Set the keep-alive time, in seconds.
 #### bind_address *[addr]*
 Set the IP address of a local network interface to bind the client to, assuming multiple interfaces exist. Defaults to blank.
 
-#### username *[usr]*
-Set the username for MQTT server authentication. Defaults to blank, in which case username/password authentication is not used.
-
-#### password *[pwd]*
-Prompt for the password for MQTT server authentication.
-
 #### will *topic [payload [qos [retain]]]*
 Set a *Will*, a.k.a. Last Will and Testament.
 * topic and payload can be quoted (e.g. if they contain spaces).
 * If payload is not specified (or is empty, e.g. ""), then a zero-length message will be published.
 * qos (0, 1, or 2) is optional; defaults to 0.
 * retain (true|false, or yes|no) is optional; defaults to false.
+
+#### username *[usr]*
+Set the username for MQTT server authentication. Defaults to blank, in which case username/password authentication is not used.
+
+#### password *[pwd]*
+Prompt for the password for MQTT server authentication.
+
+
+#### TLS/SSL
+
+##### ca_certs_filepath *file*
+Set the filepath to a Certificate Authority certificate, which will be used to validate certificates passed from the server.
+* Setting a ca_certs_filepath effectively enables TLS/SSL support.
+
+##### cert_filepath *file*
+Set the filepath to a PEM-encoded client certificate.
+
+##### key_filepath *file*
+Set the filepath to a PEM-encoded private key for the client.
+
+##### cert_reqs *[reqs]*
+Set the certificate requirements that the client imposes on the server.
+* Use help, ```help cert_reqs```, to see the options available.
+* If reqs argument is not specified, then it's set back to the default.
+
+##### tls_version *[version]*
+Set the version of the TLS/SSL protocol to be used.
+* Use help, ```help tls_version```, to see the versions available.
+* If version argument is not specified, then the version is set back to default.
+
+##### ciphers *[str]*
+Set the encryption ciphers allowable for the connection.
+* If the argument is not specified, then ciphers is set to None, which means use the defaults.
+* See the Python ssl module documentation for more information.
+
+##### tls_insecure *[true | false]*
+Disable/enable verification of the server hostname in the server certificate.
+* RECOMMENDED ONLY FOR TESTING
+
 
 #### connect
 Try connecting to the MQTT server, using the current client and connection parameters. If connection is successful, then go to the Messaaging console.

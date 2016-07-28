@@ -15,6 +15,9 @@ import time
 from collections import namedtuple
 import paho.mqtt.client as mqtt
 
+if mqtt.HAVE_SSL:
+    import ssl
+
 # Normalization, to handle Python 2 or 3:
 # In Python 3, input  behaves like raw_input in Python2, and the raw_input function does not exist.
 input = getattr(__builtins__, 'raw_input', input)
@@ -170,11 +173,123 @@ class ClientArgs(object):
                self.transport)
 
 
+class TLSArgs(object):
+    """Container to manage TLS/SSL arguments for an MQTT connection.
+    """
+    
+    _default_cert_reqs = None
+    _default_tls_version = None
+    ssl_cert_requirements = {}
+    ssl_protocol_versions = {}
+    if mqtt.HAVE_SSL:
+        _default_cert_reqs = ssl.CERT_REQUIRED
+        _default_tls_version = ssl.PROTOCOL_TLSv1
+        ssl_cert_requirements = {getattr(ssl, name): name for name in dir(ssl) if name.startswith('CERT_')}
+        ssl_protocol_versions = {getattr(ssl, name): name for name in dir(ssl) if name.startswith('PROTOCOL_')}
+        
+    ssl_cert_requirements_str = ", ".join("{} for {}".format(k, v) for (k, v) in ssl_cert_requirements.items())
+    ssl_protocol_versions_str = ", ".join("{} for {}".format(k, v) for (k, v) in ssl_protocol_versions.items())
+    
+    def __init__(self, ca_certs_filepath=None, cert_filepath=None, key_filepath=None, 
+                       cert_reqs=None, tls_version=None, ciphers=None, tls_insecure=False):
+        """Initialize TLSArgs with default or passed-in values."""
+        self.ca_certs_filepath = ca_certs_filepath
+        self.cert_filepath = cert_filepath
+        self.key_filepath = key_filepath
+        self.cert_reqs = cert_reqs
+        self.tls_version = tls_version
+        self.ciphers = ciphers
+        self.tls_insecure = tls_insecure
+
+    @property
+    def cert_reqs(self):
+        return self._cert_reqs
+    
+    @cert_reqs.setter
+    def cert_reqs(self, value):
+        if not value:
+            self._cert_reqs = self._default_cert_reqs
+        elif value in type(self).ssl_cert_requirements:
+            self._cert_reqs = value
+        else:
+            try:
+                value = int(value)
+            except ValueError:
+                value = None
+                
+            if value in type(self).ssl_cert_requirements:
+                self._cert_reqs = value
+            else:
+                print("Invalid cert_reqs value; should be " + type(self).ssl_cert_requirements_str) 
+        
+    @property
+    def tls_version(self):
+        return self._tls_version
+    
+    @tls_version.setter
+    def tls_version(self, value):
+        if not value:
+            self._tls_version = self._default_tls_version
+        elif value in type(self).ssl_protocol_versions:
+            self._tls_version = value
+        else:
+            try:
+                value = int(value)
+            except ValueError:
+                value = None
+                
+            if value in type(self).ssl_protocol_versions:
+                self._tls_version = value
+            else:
+                print("Invalid tls_version value; should be " + type(self).ssl_protocol_versions_str) 
+        
+    @property
+    def ciphers(self):
+        return self._ciphers
+    
+    @ciphers.setter
+    def ciphers(self, value):
+        if not value:
+            self._ciphers = None   # None means use the default ciphers
+        else:
+            self._ciphers = value
+        
+    @property
+    def tls_insecure(self):
+        return self._tls_insecure
+    
+    @tls_insecure.setter
+    def tls_insecure(self, value):
+        if type(value) is str:
+            self._tls_insecure = str2bool(value, default=self._tls_insecure, msg='for tls_insecure')
+        else:
+            self._tls_insecure = value
+             
+        if self._tls_insecure:
+            print("\n***** With tls_insecure=True it is possible that the host you are connecting to is impersonating your server *****")
+        
+    def __str__(self):
+        if not self.ca_certs_filepath:
+            s = "TLS/SSL args: ca_certs_filepath={}, ...  (TLS not used)".format(self.ca_certs_filepath)
+        else:
+            s = "TLS/SSL args: ca_certs_filepath={}, cert_filepath={}, key_filepath={}, cert_reqs={} ({}), tls_version={} ({}), ciphers={}, tls_insecure={}".format(
+               self.ca_certs_filepath,
+               self.cert_filepath,
+               self.key_filepath,
+               self.cert_reqs, 
+               type(self).ssl_cert_requirements.get(self.cert_reqs, None),
+               self.tls_version, 
+               type(self).ssl_protocol_versions.get(self.tls_version, None),
+               self.ciphers or "(defaults)", 
+               self.tls_insecure and ("***" + str(self.tls_insecure).upper() + "***"))
+        return s
+
+
 class ConnectionArgs(object):
     """Container to manage arguments for an MQTT connection.
     """
     
-    def __init__(self, host="", port=None, keepalive=None, bind_address="", username="", password="", will=None):
+    def __init__(self, host="", port=None, keepalive=None, bind_address="", will=None, username="", password="", tls_args=None):
         """Initialize ConnectionArgs with default or passed-in values."""
         self._default_host = "localhost"
         self.host = host
@@ -183,9 +298,10 @@ class ConnectionArgs(object):
         self._default_keepalive = 60
         self.keepalive = keepalive
         self.bind_address = bind_address
+        self.will = will  # a Message
         self.username = username
         self.password = password
-        self.will = will  # a Message
+        self.tls_args = tls_args or TLSArgs()
 
     @property
     def host(self):
@@ -222,9 +338,10 @@ class ConnectionArgs(object):
             self._keepalive = int(value)
         
     def __str__(self):
-        return "Connection args: host={}, port={}, keepalive={}, bind_address={}, username={}, password={}, will={}".format(
-               self.host, self.port, self.keepalive, self.bind_address,
-               self.username, '*'*len(self.password), self.will)
+        return "Connection args: host={}, port={}, keepalive={}, bind_address={}, will={},".format(
+               self.host, self.port, self.keepalive, self.bind_address, self.will) + "\n" + \
+               "                 username={}, password={}, ".format(self.username, '*'*len(self.password)) + "\n" + \
+               "                 {}".format(self.tls_args)
 
 
 class MessagePublisher(object):
@@ -743,16 +860,8 @@ class ConnectionConsole(RootConsole):
         self.context.connection_args.keepalive = arg
 
     def do_bind_address(self, arg):
-        """Set the IP address of a local network interface to bind the client to, assuming multiple interfaces exist (defaults to blank)"""
+        """Set the IP address of a local network interface to bind the client to, assuming multiple interfaces exist (defaults to blank)."""
         self.context.connection_args.bind_address = arg
-
-    def do_username(self, arg):
-        """Set the username for MQTT server authentication"""
-        self.context.connection_args.username = arg
-
-    def do_password(self, arg):
-        """Prompt for the password for MQTT server authentication (if username is blank, then this is not used)"""
-        self.context.connection_args.password = getpass.getpass()
 
     def do_will(self, arg):
         """Set a Will (a.k.a. Last Will and Testament), e.g. will topic [payload [qos [retain]]]
@@ -763,24 +872,76 @@ class ConnectionConsole(RootConsole):
         retain (true/false or yes/no) is optional; defaults to false"""
         self.context.connection_args.will = MessagePublisher.parse_msg_input(arg)
 
+    def do_username(self, arg):
+        """Set the username for MQTT server authentication."""
+        self.context.connection_args.username = arg
+
+    def do_password(self, arg):
+        """Prompt for the password for MQTT server authentication (if username is blank, then this is not used)."""
+        self.context.connection_args.password = getpass.getpass()
+
+    def do_ca_certs_filepath(self, arg):
+        """(TLS/SSL) Set the filepath to a Certificate Authority certificate, used to validate certificates passed from the server.
+        Setting a ca_certs_filepath effectively enables TLS/SSL support."""
+        self.context.connection_args.tls_args.ca_certs_filepath = arg or None
+
+    def do_cert_filepath(self, arg):
+        """(TLS/SSL) Set the filepath to a PEM-encoded client certificate."""
+        self.context.connection_args.tls_args.cert_filepath = arg or None
+
+    def do_key_filepath(self, arg):
+        """(TLS/SSL) Set the filepath to a PEM-encoded private key for the client."""
+        self.context.connection_args.tls_args.key_filepath = arg or None
+
+    def do_cert_reqs(self, arg):
+        """(TLS/SSL) Set the certificate requirements that the client imposes on the server (blank arg sets back to default), e.g. cert_reqs 1"""
+        self.context.connection_args.tls_args.cert_reqs = arg
+
+    def help_cert_reqs(self):
+        print("(TLS/SSL) Set the certificate requirements that the client imposes on the server (" + TLSArgs.ssl_cert_requirements_str + ")" +
+              " (blank arg sets back to default), e.g. cert_reqs " + str(list(TLSArgs.ssl_cert_requirements.keys())[0]))
+
+    def do_tls_version(self, arg):
+        """(TLS/SSL) Set the TLS/SSL protocol version (blank arg sets back to default), e.g. tls_version 1"""
+        self.context.connection_args.tls_args.tls_version = arg
+
+    def help_tls_version(self):
+        print("(TLS/SSL) Set the TLS/SSL protocol version (" + TLSArgs.ssl_protocol_versions_str + ")" +
+              " (blank arg sets back to default), e.g. tls_version " + str(list(TLSArgs.ssl_protocol_versions.keys())[0]))
+
+    def do_ciphers(self, arg):
+        """(TLS/SSL) Set the encryption ciphers allowable for the connection (blank arg sets to None, meaning use the defaults), e.g. ciphers TLS_RSA_WITH_RC4_128_SHA
+        See the Python ssl module documentation for more information."""
+        self.context.connection_args.tls_args.ciphers = arg
+
+    def do_tls_insecure(self, arg):
+        """Disable verification of the server hostname in the server certificate, e.g. tls_insecure True.
+        RECOMMENDED ONLY FOR TESTING."""
+        self.context.connection_args.tls_args.tls_insecure = arg
+    
     def do_connect(self, arg):
         """Connect to the MQTT server, using the current connection parameters.
-        If connection successful, then go to the Messaging console."""
+        If connection is successful, then go to the Messaging console."""
         connected = None
         ca = self.context.connection_args
-        
-        if ca.username:
-            self.context.mqttclient.username_pw_set(ca.username, ca.password)
-        else:
-            self.context.mqttclient.username_pw_set("", None)
+        try:        
+            if ca.will:
+                self.context.mqttclient.will_set(topic=ca.will.topic, payload=ca.will.payload, qos=ca.will.qos, retain=ca.will.retain)
+    
+            if ca.username:
+                self.context.mqttclient.username_pw_set(ca.username, ca.password)
+            else:
+                self.context.mqttclient.username_pw_set("", None)
+    
+            if ca.tls_args.ca_certs_filepath:
+                ta = ca.tls_args
+                self.context.mqttclient.tls_set(ca_certs=ta.ca_certs_filepath, certfile=ta.cert_filepath, keyfile=ta.key_filepath,
+                                                cert_reqs=ta.cert_reqs, tls_version=ta.tls_version, ciphers=ta.ciphers)
+                self.context.mqttclient.tls_insecure_set(ta.tls_insecure)
 
-        if ca.will:
-            self.context.mqttclient.will_set(topic=ca.will.topic, payload=ca.will.payload, qos=ca.will.qos, retain=ca.will.retain)
-
-        try:
             rc = self.context.mqttclient.connect(host=ca.host, port=ca.port, keepalive=ca.keepalive, bind_address=ca.bind_address)
             connected = (rc == mqtt.MQTT_ERR_SUCCESS)
-        except socket.error as e:
+        except Exception as e:
             print(e)
         else:
             if not connected:
