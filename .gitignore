@@ -1,6 +1,10 @@
 # Ignore the paho subfolder (python mqtt module from Paho project)
-paho/
+/paho
 
+# Ignore change test cmd files in root folder
+test*.cmd
+
+# Ignore the Eclipse-related project files
 # Ignore the Eclipse-related project files
 .project
 .pydevproject
