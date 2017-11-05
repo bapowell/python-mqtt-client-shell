@@ -15,8 +15,15 @@ import time
 from collections import namedtuple
 import paho.mqtt.client as mqtt
 
-if mqtt.HAVE_SSL:
-    import ssl
+# Paho clients after v1.3 do not have the HAVE_SSL attribute. They will import ssl, or set ssl=None if unsuccessful.
+try:
+    if mqtt.HAVE_SSL:
+        import ssl
+    else:
+        ssl = None
+except AttributeError:
+    # Must be using v1.3+.
+    ssl = mqtt.ssl
 
 # Normalization, to handle Python 2 or 3:
 # In Python 3, input  behaves like raw_input in Python2, and the raw_input function does not exist.
@@ -181,7 +188,7 @@ class TLSArgs(object):
     _default_tls_version = None
     ssl_cert_requirements = {}
     ssl_protocol_versions = {}
-    if mqtt.HAVE_SSL:
+    if ssl:
         _default_cert_reqs = ssl.CERT_REQUIRED
         _default_tls_version = ssl.PROTOCOL_TLSv1
         ssl_cert_requirements = {getattr(ssl, name): name for name in dir(ssl) if name.startswith('CERT_')}
