@@ -13,7 +13,9 @@ import shlex
 import binascii
 import time
 from collections import namedtuple
+from distutils.version import LooseVersion
 import paho.mqtt.client as mqtt
+import paho.mqtt  # just to get the __version__
 
 # Paho clients after v1.3 do not have the HAVE_SSL attribute. They will import ssl, or set ssl=None if unsuccessful.
 try:
@@ -938,7 +940,13 @@ class ConnectionConsole(RootConsole):
             if ca.username:
                 self.context.mqttclient.username_pw_set(ca.username, ca.password)
             else:
-                self.context.mqttclient.username_pw_set("", None)
+                # Do not use user/pwd credentials.
+                if LooseVersion(paho.mqtt.__version__) < LooseVersion("1.3.0"):
+                    self.context.mqttclient.username_pw_set("", None)
+                elif LooseVersion(paho.mqtt.__version__) < LooseVersion("1.4.0"):
+                    self.context.mqttclient._username = None    # terrible hack
+                else:
+                    self.context.mqttclient.username_pw_set(None, None)
     
             if ca.tls_args.ca_certs_filepath:
                 ta = ca.tls_args
