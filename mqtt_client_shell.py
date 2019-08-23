@@ -68,6 +68,7 @@ def isfloat(value):
 # -----------------------------------------------------------------------------
 def on_connect(mqttclient, userdata, flags, rc):
     userdata.log("on_connect(): result code = {} ({})".format(rc, mqtt.connack_string(rc)))
+    userdata.log("              flags = {}".format(flags))
 
 def on_disconnect(mqttclient, userdata, rc):
     userdata.log("on_disconnect(): result code = {}".format(rc))
